@@ -41,8 +41,8 @@ enum input_command {
     c_list_memory_regions_info,
     c_list_memory_regions_info_committed,
     c_travers_heap,
+    c_travers_heap_calc_entropy,
     c_travers_heap_blocks,
-    c_travers_heap_blocks_with_entropy,
     c_continue,
     c_quit_program,
 };

@@ -160,8 +160,8 @@ static void print_help() {
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
     puts("th\t\t\t - travers process heaps (slow)");
+    puts("the\t\t\t - travers process heaps, calculate entropy (slower)");
     puts("thb\t\t\t - travers process heaps, list heap blocks (extra slow)");
-    puts("thbe\t\t\t - travers process heaps, list head blocks and calculate entropy (even slower)");
     puts("********************************\n");
 }
 
@@ -233,10 +233,10 @@ static input_command parse_command(process_context *ctx, search_data *data, char
     } else if ((cmd[0] == 't') && (cmd[1] == 'h')) {
         if (cmd[2] == 0) {
             command = c_travers_heap;
-        } else if ((cmd[2] == 'b') && (cmd[3] == 0)) {
+        } else if (cmd[2] == 'e') {
+            command = c_travers_heap_calc_entropy;
+        } else if (cmd[2] == 'b') {
             command = c_travers_heap_blocks;
-        } else if ((cmd[2] == 'b') && (cmd[3] == 'e')) {
-            command = c_travers_heap_blocks_with_entropy;
         } else {
             puts(unknown_command);
             command = c_continue;
@@ -290,11 +290,11 @@ static void execute_command(input_command cmd, process_context *ctx) {
     case c_travers_heap:
         traverse_heap_list(ctx->pid, false, false);
         break;
+    case c_travers_heap_calc_entropy:
+        traverse_heap_list(ctx->pid, false, true);
+        break;
     case c_travers_heap_blocks:
         traverse_heap_list(ctx->pid, true, false);
-        break;
-    case c_travers_heap_blocks_with_entropy:
-        traverse_heap_list(ctx->pid, true, true);
         break;
     default :
         puts(unknown_command);
