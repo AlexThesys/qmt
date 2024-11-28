@@ -1,0 +1,290 @@
+#include "common.h"
+
+const char* page_state[] = { "MEM_COMMIT", "MEM_FREE", "MEM_RESERVE" };
+const char* page_type[] = { "MEM_IMAGE", "MEM_MAPPED", "MEM_PRIVATE" };
+const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUTE_READWRITE", "PAGE_EXECUTE_WRITECOPY", "PAGE_NOACCESS", "PAGE_READONLY",
+                                    "PAGE_READWRITE", "PAGE_WRITECOPY", "PAGE_TARGETS_INVALID", "UNKNOWN" };
+
+const char* unknown_command = "Unknown command.";
+static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-m=", "--memlimit=", "-v", "--version",
+                                "-p", "--process", "-d", "--dump" };
+static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
+static const char* program_version = "Version 0.2.0";
+static const char* program_name = "Quick Memory Tools";
+
+std::mutex g_mtx;
+std::condition_variable g_cv;
+LONG g_memory_usage_bytes = 0; // accessed from different threads
+int g_max_omp_threads = MAX_OMP_THREADS;
+int g_memory_limit = MAX_MEMORY_USAGE_IDEAL;
+int g_show_failed_readings = 0;
+inspection_mode g_inspection_mode = inspection_mode::im_none;
+
+static constexpr int check_architecture_ct() {
+#if defined(__x86_64__) || defined(_M_X64)
+    return 1;
+#elif defined(i386) || defined(__i386__) || defined(__i386) || defined(_M_IX86)
+    return 1;
+#else
+    return 0;
+#endif
+}
+static_assert(check_architecture_ct(), "Only x86-64 architecture is supported at the moment!");
+
+int check_architecture_rt() {
+    SYSTEM_INFO SystemInfo;
+    GetSystemInfo(&SystemInfo);
+    return int(SystemInfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64
+        || SystemInfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_INTEL);
+}
+
+const char* get_page_state(DWORD state) {
+    const char *result = NULL;
+    switch (state) {
+    case MEM_COMMIT:
+        result = page_state[0];
+        break;
+    case MEM_FREE:
+        result = page_state[1];
+        break;
+    case MEM_RESERVE:
+        result = page_state[2];
+        break;
+    }
+    return result;
+}
+
+void print_page_type(DWORD state) {
+    printf("Type:");
+    if (state == MEM_IMAGE) {
+        printf(" %s\n", page_type[0]);
+    } else {
+        if (state & MEM_MAPPED) {
+            printf(" %s ", page_type[1]);
+        }
+        if (state & MEM_PRIVATE) {
+            printf(" %s ", page_type[2]);
+        }
+        puts("");
+    }
+}
+
+const char* get_page_protect(DWORD state) {
+    // lets not comlicate things with other available options for now
+    state &= ~(PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE);
+
+    const char* result;
+    switch (state) {
+    case PAGE_EXECUTE:
+        result = page_protect[0];
+        break;
+    case PAGE_EXECUTE_READ:
+        result = page_protect[1];
+        break;
+    case PAGE_EXECUTE_READWRITE:
+        result = page_protect[2];
+        break;
+    case PAGE_EXECUTE_WRITECOPY:
+        result = page_protect[3];
+        break;
+    case PAGE_NOACCESS:
+        result = page_protect[4];
+        break;
+    case PAGE_READONLY:
+        result = page_protect[5];
+        break;
+    case PAGE_READWRITE:
+        result = page_protect[6];
+        break;
+    case PAGE_WRITECOPY:
+        result = page_protect[7];
+        break;
+    case PAGE_TARGETS_INVALID:
+        result = page_protect[8];
+        break;
+    default:
+        result = page_protect[9];
+        break;
+    }
+    return result;
+}
+
+bool too_many_results(size_t num_lines) {
+    if (num_lines < TOO_MANY_RESULTS) {
+        return false;
+    }
+    printf("Would you like to display %llu results? y/n ", num_lines);
+    const char ch = static_cast<char>(getchar());
+    while ((getchar()) != '\n'); // flush stdin
+    puts("");
+    return !(ch == 'y' || ch == 'Y');
+}
+
+void parse_input(const char* pattern, search_data *data) {
+    if (data->pattern_len > MAX_PATTERN_LEN) {
+        fprintf(stderr, "Pattern exceeded maximum size of %d. Exiting...", MAX_PATTERN_LEN);
+        data->type = it_error_type;
+        return;
+    }
+    uint64_t value = 0;
+    char* end;
+    value = strtoull(pattern, &end, 0x10);
+    const int is_hex = (pattern != end);
+
+    if (is_hex) {
+        data->type = it_hex;
+        data->value = value;
+        data->pattern = (const char*)&data->value;
+        if (*end == 'h' || *end == 'H') {
+            data->pattern_len = size_t(end - pattern);
+        } else if (pattern[0] == '0' && (pattern[1] == 'x' || pattern[1] == 'X')) {
+            data->pattern_len -= 1;
+        }
+        data->pattern_len /= 2;
+        if (data->pattern_len <= sizeof(uint64_t)) {
+            puts("\nSearching for a hex value...\n");
+        } else {
+            printf("Max supported hex value size: %d bytes!\n", (int)sizeof(uint64_t));
+            data->type = it_error_type;
+        }
+    } else {
+        data->type = it_ascii;
+        data->pattern = pattern;
+        puts("\nSearching for an ascii string...\n");
+    }
+}
+
+const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* substr, size_t substr_sz) {
+    if (/*!substr_sz || */(str_sz < substr_sz)) {
+        return NULL;
+    }
+    const __m128i first = _mm_set1_epi8(substr[0]);
+    const __m128i last = _mm_set1_epi8(substr[substr_sz - 1]);
+    const uint8_t skip_first = (uint8_t)(substr_sz > 2);
+    const size_t cmp_size = substr_sz - (1llu << skip_first);
+
+    for (size_t j = 0, sz = str_sz - substr_sz; j <= sz; j += step) {
+        const uint8_t* f = str + j;
+        const uint8_t* l = str + j + substr_sz - 1;
+        __m128i xmm0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(f));
+        __m128i xmm1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(l));
+
+        xmm0 = _mm_cmpeq_epi8(first, xmm0);
+        xmm1 = _mm_cmpeq_epi8(last, xmm1);
+        xmm0 = _mm_and_si128(xmm0, xmm1);
+
+        uint32_t mask = (uint32_t)_mm_movemask_epi8(xmm0);
+
+        const uint8_t max_offset = (uint8_t)_min(step, str_sz - (j + substr_sz) + 1);
+        const uint32_t max_offset_mask = (1 << max_offset) - 1;
+        mask &= max_offset_mask;
+        unsigned long bit = 0;
+
+        while (_BitScanForward(&bit, mask)) {
+            const uint32_t offset = bit;
+            const uint8_t* m0 = str + j + offset + skip_first;
+            const uint8_t* m1 = substr + skip_first;
+            if (memcmp(m0, m1, cmp_size) == 0)
+                return (str + j + offset);
+
+            mask ^= (1 << bit); // clear bit
+        }
+    }
+
+    return NULL;
+}
+
+static void print_help() {
+    puts("\n*** The program has to be launched in either process or dump inspection mode. ***\n");
+    puts("-p || --process\t\t\t\t\t -- launch in process inspection mode");
+    puts("-d || --dump\t\t\t\t\t -- launch in dump inspection mode\n");
+    puts("-t=<num_threads> || --threads=<num_threads>\t -- limit the number of OMP threads");
+    puts("-m=<GB> || --memlimit=<GB>\t\t\t -- limit the memory usage (in GB) (process mode only)");
+    puts("-f || --show-failed-readings\t\t\t -- show the regions, that failed to be read (process mode only)\n");
+}
+
+bool parse_cmd_args(int argc, const char** argv) {
+    if (argc > (cmd_args_size + 1)) {
+        puts("Too many arguments provided: some will be discarded.");
+    }
+
+    uint32_t selected_options = 0;;
+    for (int i = 1, sz = _min((int)cmd_args_size, argc); i < sz; i++) {
+        if ((0 == strcmp(argv[i], cmd_args[0])) || (0 == strcmp(argv[i], cmd_args[1]))) { // help
+            print_help();
+            selected_options |= 1 << 0;
+            return false;
+        } else if ((0 == strcmp(argv[i], cmd_args[2])) || (0 == strcmp(argv[i], cmd_args[3]))) { // display failed reads
+            g_show_failed_readings = 1;
+            selected_options |= 1 << 2;
+        } else if ((argv[i] == strstr(argv[i], cmd_args[4])) || (argv[i] == strstr(argv[i], cmd_args[5]))) { // OMP threads
+            const char* num_t = (argv[i][1] == '-') ? (argv[i] + strlen(cmd_args[5])) : (argv[i] + strlen(cmd_args[4]));
+            char* end = NULL;
+            size_t arg_len = strlen(num_t);
+            DWORD num_threads = strtoul(num_t, &end, is_hex(num_t, arg_len) ? 16 : 10);
+            if (num_t != end) {
+                num_threads = _max(1, num_threads);
+                g_max_omp_threads = _min(num_threads, g_max_omp_threads);
+            }
+            selected_options |= 1 << 3;
+        } else if ((argv[i] == strstr(argv[i], cmd_args[6])) || (argv[i] == strstr(argv[i], cmd_args[7]))) { // memory limit
+            const char* mlim = (argv[i][1] == '-') ? (argv[i] + strlen(cmd_args[7])) : (argv[i] + strlen(cmd_args[6]));
+            char* end = NULL;
+            size_t arg_len = strlen(mlim);
+            DWORD mem_limit = strtoul(mlim, &end, is_hex(mlim, arg_len) ? 16 : 10);
+            if (mlim != end) {
+                mem_limit = _min(MAX_MEM_LIM_GB, _max(1, mem_limit));
+                g_memory_limit = (size_t)mem_limit << 30;
+            }
+            selected_options |= 1 << 4;
+        } else if ((0 == strcmp(argv[i], cmd_args[8])) || (0 == strcmp(argv[i], cmd_args[9]))) { // version
+            puts(program_name);
+            puts(program_version);
+            selected_options |= 1 << 5;
+            return false;
+        } else if ((0 == strcmp(argv[i], cmd_args[10])) || (0 == strcmp(argv[i], cmd_args[11]))) { // process mode
+            g_inspection_mode = inspection_mode::im_process;
+            selected_options |= 1 << 6;
+        } else if ((0 == strcmp(argv[i], cmd_args[12])) || (0 == strcmp(argv[i], cmd_args[13]))) { // dump mode
+            g_inspection_mode = inspection_mode::im_dump;
+            selected_options |= 1 << 7;
+        }
+            // ...
+    }
+    constexpr uint32_t incompatible_mask = (1 << 6) | (1 << 7); // both -p and -d
+    const bool incompatible_options = ((selected_options & incompatible_mask) == incompatible_mask);
+    if ((g_inspection_mode == inspection_mode::im_none) || incompatible_options) {
+        print_help();
+        return false;
+    }
+
+    return true;
+}
+
+char* skip_to_args(char *cmd, size_t len) {
+    bool found = false;
+    size_t cur_len = 0;
+    // skip whitespace
+    while (((cur_len < len) && (cmd[cur_len] != 0))) {
+        if (!isspace(cmd[cur_len])) {
+            break;
+        }
+        cur_len++;
+    }
+    // skip to whitespace
+    while (((cur_len < len) && (cmd[cur_len] != 0))) {
+        if (isspace(cmd[cur_len])) {
+            break;
+        }
+        cur_len++;
+    }
+    // skip whitespace
+    while (((cur_len < len) && (cmd[cur_len] != 0))) {
+        if (!isspace(cmd[cur_len])) {
+            found = true;
+            break;
+        }
+        cur_len++;
+    }
+    return found ? (cmd + cur_len) : nullptr;
+}
