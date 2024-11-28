@@ -238,8 +238,10 @@ bool parse_cmd_args(int argc, const char** argv) {
             }
             selected_options |= 1 << 4;
         } else if ((0 == strcmp(argv[i], cmd_args[8])) || (0 == strcmp(argv[i], cmd_args[9]))) { // version
+            puts("");
             puts(program_name);
             puts(program_version);
+            puts("");
             selected_options |= 1 << 5;
             return false;
         } else if ((0 == strcmp(argv[i], cmd_args[10])) || (0 == strcmp(argv[i], cmd_args[11]))) { // process mode

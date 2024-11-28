@@ -555,7 +555,7 @@ static void list_thread_registers(const dump_context* ctx) {
         printf("*** ThreadID: 0x%04x ***\nRAX: 0x%p RBX: 0x%p RCX: 0x%p RDI: 0x%p RSI: 0x%p\n", thread.tid,
             (char*)thread.context->Rax, (char*)thread.context->Rbx, (char*)thread.context->Rcx, (char*)thread.context->Rdx, 
             (char*)thread.context->Rdi, (char*)thread.context->Rsi);
-        printf("RSP: 0x%p RBP: 0x%p RIP: 0x%p RFLAGS: 0x%04x MXCSR: 0x%04x\n",
+        printf("RSP: 0x%p RBP: 0x%p RIP: 0x%p RFLAGS: 0x%04x\t\tMXCSR: 0x%04x\n",
             (char*)thread.context->Rsp, (char*)thread.context->Rbp, (char*)thread.context->Rip,
             (char*)thread.context->EFlags, (char*)thread.context->MxCsr);
         printf("R8:  0x%p R9:  0x%p R10: 0x%p R11: 0x%p\n",
