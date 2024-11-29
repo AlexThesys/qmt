@@ -26,8 +26,7 @@ struct cpu_info_data {
 };
 
 struct dump_context {
-    const char* pattern;
-    size_t pattern_len;
+    common_context common;
     HANDLE file_base;
     std::vector<module_data> m_data;
     std::vector<thread_data> t_data;
@@ -123,8 +122,8 @@ static void find_pattern(const dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPT
         }
     }
 
-    const char* pattern = ctx->pattern;
-    const size_t pattern_len = ctx->pattern_len;
+    const char* pattern = ctx->common.pattern;
+    const size_t pattern_len = ctx->common.pattern_len;
 
     const int num_threads = _min(g_max_omp_threads, omp_get_num_procs());
     omp_set_num_threads(num_threads);   
@@ -229,57 +228,17 @@ static void search_pattern_in_dump(const dump_context *ctx) {
 }
 
 static void print_help() {
-    puts("********************************");
-    puts("?\t\t\t - list commands (this message)");
-    puts("/ <pattern>\t\t - search for hex value or ascii string (no whitespace)");
-    puts("q\t\t\t - quit the program");
+    puts("--------------------------------");
+    puts("lr\t\t\t - list thread registers");
     puts("lmr\t\t\t - list memory regions");
     puts("lmi\t\t\t - list memory regions info");
     puts("lmic\t\t\t - list committed memory regions info");
-    puts("lM\t\t\t - list process modules");
-    puts("lt\t\t\t - list process threads");
-    puts("lr\t\t\t - list thread registers");
     puts("********************************\n");
 }
 
-static input_command parse_command(dump_context *ctx, search_data *data, char *pattern) {
+static input_command parse_command(dump_context *ctx, search_data *data, char* cmd, char *pattern) {
     input_command command;
-    char cmd[MAX_COMMAND_LEN+MAX_ARG_LEN];
-    memset(cmd, 0, sizeof(cmd));
-    const char *res = gets_s(cmd, sizeof(cmd));
-    if (res == nullptr) {
-        puts("Empty input.");
-        return c_continue;
-    }
-    if (cmd[0] == 0) {
-        command = c_continue;
-    } else if ((cmd[0] == 'q') || (cmd[0] == 'Q')) {
-        puts("\n==== Exiting... ====");
-        command = c_quit_program;
-    } else if (cmd[0] == '?') {
-        command = c_help;
-    } else if (cmd[0] == '/') {
-        memset(pattern, 0, MAX_PATTERN_LEN);
-        size_t pattern_len = strlen(cmd);
-        char* args = skip_to_args(cmd, pattern_len);
-        if (args == nullptr) {
-            puts("Pattern missing.");
-            return c_continue;
-        }
-        pattern_len -= (ptrdiff_t)(args - cmd);
-        memcpy(pattern, args, pattern_len);
-        data->pattern_len = pattern_len;
-
-        parse_input(pattern, data);
-        if (data->type == it_error_type) {
-            puts("Error parsing the pattern.");
-            command = c_continue;
-        } else {
-            ctx->pattern = data->pattern;
-            ctx->pattern_len = data->pattern_len;
-            command = c_search_pattern;
-        }
-    } else if (cmd[0] == 'l') {
+    if (cmd[0] == 'l') {
         if (cmd[1] == 'M') {
             command = c_list_modules;
         } else if (cmd[1] == 't') {
@@ -323,6 +282,7 @@ static input_command parse_command(dump_context *ctx, search_data *data, char *p
 static void execute_command(input_command cmd, const dump_context *ctx) {
     switch (cmd) {
     case c_help :
+        print_help_common();
         print_help();
         break;
     case c_search_pattern : {
@@ -368,22 +328,31 @@ int run_dump_inspection() {
         return -1;
     }
 
-    dump_context ctx = { nullptr, 0, file_base };
+    dump_context ctx = { { nullptr, 0 }, file_base };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
         puts("Only x86-64 architecture supported at the moment. Exiting..");
         return -1;
     }
+
+    print_help_common();
+    print_help();
+
     gather_modules(&ctx);
     gather_threads(&ctx);
 
     char pattern[MAX_PATTERN_LEN];
+    char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
     search_data data;
 
-    print_help();
     while (1) {
         printf(">: ");
-        input_command cmd = parse_command(&ctx, &data, pattern);
+        input_command cmd = parse_command_common(&ctx.common, &data, command, pattern);
+        if (cmd == input_command::c_not_set) {
+            cmd = parse_command(&ctx, &data, command, pattern);
+        } else {
+            puts("");
+        }
         if (cmd == c_quit_program) {
             break;
         } else if (cmd == c_continue) {

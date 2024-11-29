@@ -2,8 +2,7 @@
 #include "common.h"
 
 struct process_context {
-    const char* pattern;
-    size_t pattern_len;
+    common_context common;
     DWORD pid;
 };
 
@@ -151,37 +150,18 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
 }
 
 static void print_help() {
-    puts("********************************");
-    puts("?\t\t\t - list commands (this message)");
+    puts("--------------------------------");
     puts("p <pid>\t\t\t - select PID");
-    puts("/ <pattern>\t\t - search for hex value or ascii string (no whitespace)");
-    puts("q\t\t\t - quit the program");
     puts("lp\t\t\t - list system PIDs");
-    puts("lM\t\t\t - list process modules");
-    puts("lt\t\t\t - list process threads");
     puts("th\t\t\t - travers process heaps (slow)");
     puts("the\t\t\t - travers process heaps, calculate entropy (slower)");
     puts("thb\t\t\t - travers process heaps, list heap blocks (extra slow)");
     puts("********************************\n");
 }
 
-static input_command parse_command(process_context *ctx, search_data *data, char *pattern) {
+static input_command parse_command(process_context *ctx, search_data *data, char* cmd, char *pattern) {
     input_command command;
-    char cmd[MAX_COMMAND_LEN+MAX_ARG_LEN];
-    memset(cmd, 0, sizeof(cmd));
-    const char *res = gets_s(cmd, sizeof(cmd));
-    if (res == nullptr) {
-        puts("Empty input.");
-        return c_continue;
-    }
-    if (cmd[0] == 0) {
-        command = c_continue;
-    } else if ((cmd[0] == 'q') || (cmd[0] == 'Q')) {
-        puts("\n==== Exiting... ====");
-        command = c_quit_program;
-    } else if (cmd[0] == '?') {
-        command = c_help;
-    } else if (cmd[0] == 'p') {
+    if (cmd[0] == 'p') {
         size_t pid_len = strlen(cmd);
         char* args = skip_to_args(cmd, pid_len);
         if (args == nullptr) {
@@ -197,27 +177,6 @@ static input_command parse_command(process_context *ctx, search_data *data, char
         } else {
             ctx->pid = pid;
             command = c_continue;
-        }
-    } else if (cmd[0] == '/') {
-        memset(pattern, 0, MAX_PATTERN_LEN);
-        size_t pattern_len = strlen(cmd);
-        char* args = skip_to_args(cmd, pattern_len);
-        if (args == nullptr) {
-            puts("Pattern missing.");
-            return c_continue;
-        }
-        pattern_len -= (ptrdiff_t)(args - cmd);
-        memcpy(pattern, args, pattern_len);
-        data->pattern_len = pattern_len;
-
-        parse_input(pattern, data);
-        if (data->type == it_error_type) {
-            puts("Error parsing the pattern.");
-            command = c_continue;
-        } else {
-            ctx->pattern = data->pattern;
-            ctx->pattern_len = data->pattern_len;
-            command = c_search_pattern;
         }
     } else if (cmd[0] == 'l') {
         if (cmd[1] == 'p') {
@@ -258,10 +217,11 @@ static void execute_command(input_command cmd, process_context *ctx) {
 
     switch (cmd) {
     case c_help :
+        print_help_common();
         print_help();
         break;
     case c_search_pattern : {
-        assert(ctx->pattern != nullptr);
+        assert(ctx->common.pattern != nullptr);
         HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
         if (process == NULL) {
             fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
@@ -273,7 +233,7 @@ static void execute_command(input_command cmd, process_context *ctx) {
             printf("Process name: %s\n\n", proc_name);
         }
 
-        find_pattern(process, ctx->pattern, ctx->pattern_len);
+        find_pattern(process, ctx->common.pattern, ctx->common.pattern_len);
 
         CloseHandle(process);
         break;
@@ -304,14 +264,23 @@ static void execute_command(input_command cmd, process_context *ctx) {
 }
 
 int run_process_inspection() {
-    char pattern[MAX_PATTERN_LEN];
-    search_data data;
-    process_context ctx = { nullptr, 0, (DWORD)(-1) };
-
+    print_help_common();
     print_help();
+
+    char pattern[MAX_PATTERN_LEN];
+    char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
+
+    search_data data;
+    process_context ctx = { { nullptr, 0 }, (DWORD)(-1) };
+
     while (1) {
         printf(">: ");
-        input_command cmd = parse_command(&ctx, &data, pattern);
+        input_command cmd = parse_command_common(&ctx.common, &data, command, pattern);
+        if (cmd == input_command::c_not_set) {
+            cmd = parse_command(&ctx, &data, command, pattern);
+        } else {
+            puts("");
+        }
         if (cmd == c_quit_program) {
             return 0;
         } else if (cmd == c_continue) {

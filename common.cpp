@@ -120,7 +120,7 @@ bool too_many_results(size_t num_lines) {
     return !(ch == 'y' || ch == 'Y');
 }
 
-void parse_input(const char* pattern, search_data *data) {
+static void parse_input(const char* pattern, search_data *data, input_type in_type) {
     if (data->pattern_len > MAX_PATTERN_LEN) {
         fprintf(stderr, "Pattern exceeded maximum size of %d. Exiting...", MAX_PATTERN_LEN);
         data->type = it_error_type;
@@ -131,26 +131,30 @@ void parse_input(const char* pattern, search_data *data) {
     value = strtoull(pattern, &end, 0x10);
     const int is_hex = (pattern != end);
 
-    if (is_hex) {
+    if (is_hex && (in_type == input_type::it_hex)) {
         data->type = it_hex;
         data->value = value;
         data->pattern = (const char*)&data->value;
+        size_t extra_char = 0;
         if (*end == 'h' || *end == 'H') {
             data->pattern_len = size_t(end - pattern);
+            extra_char = data->pattern_len & 0x01;
         } else if (pattern[0] == '0' && (pattern[1] == 'x' || pattern[1] == 'X')) {
             data->pattern_len -= 1;
         }
-        data->pattern_len /= 2;
+        data->pattern_len = (data->pattern_len + extra_char) / 2;
         if (data->pattern_len <= sizeof(uint64_t)) {
             puts("\nSearching for a hex value...\n");
         } else {
             printf("Max supported hex value size: %d bytes!\n", (int)sizeof(uint64_t));
             data->type = it_error_type;
         }
-    } else {
+    } else if (in_type == input_type::it_ascii) {
         data->type = it_ascii;
         data->pattern = pattern;
         puts("\nSearching for an ascii string...\n");
+    } else {
+        data->type = it_error_type;
     }
 }
 
@@ -289,4 +293,66 @@ char* skip_to_args(char *cmd, size_t len) {
         cur_len++;
     }
     return found ? (cmd + cur_len) : nullptr;
+}
+
+void print_help_common() {
+    puts("********************************");
+    puts("?\t\t\t - list commands (this message)");
+    puts("/x <pattern>\t\t - search for hex value (1-8 bytes wide)");
+    puts("/a <pattern>\t\t - search for ascii string (no whitespace)");
+    puts("q\t\t\t - quit the program");
+    puts("lM\t\t\t - list process modules");
+    puts("lt\t\t\t - list process threads");
+}
+
+input_command parse_command_common(common_context *ctx, search_data *data, char* cmd, char *pattern) {
+    input_command command;
+    memset(cmd, 0, sizeof(cmd));
+    const char *res = gets_s(cmd, MAX_COMMAND_LEN + MAX_ARG_LEN);
+    if (res == nullptr) {
+        puts("Empty input.");
+        return c_continue;
+    }
+    if (cmd[0] == 0) {
+        command = c_continue;
+    } else if ((cmd[0] == 'q') || (cmd[0] == 'Q')) {
+        puts("\n==== Exiting... ====");
+        command = c_quit_program;
+    } else if (cmd[0] == '?') {
+        command = c_help;
+    } else if (cmd[0] == '/') {
+        input_type in_type = input_type::it_error_type;
+        if (cmd[1] == 'x') {
+            in_type = input_type::it_hex;
+        } else if (cmd[1] == 'a') {
+            in_type = input_type::it_ascii;
+        } else {
+            puts(unknown_command);
+            return c_continue;
+        }
+        memset(pattern, 0, MAX_PATTERN_LEN);
+        size_t pattern_len = strlen(cmd);
+        char* args = skip_to_args(cmd, pattern_len);
+        if (args == nullptr) {
+            puts("Pattern missing.");
+            return c_continue;
+        }
+        pattern_len -= (ptrdiff_t)(args - cmd);
+        memcpy(pattern, args, pattern_len);
+        data->pattern_len = pattern_len;
+
+        parse_input(pattern, data, in_type);
+        if (data->type == it_error_type) {
+            puts("Pattern type doesn't match the command.");
+            command = c_continue;
+        } else {
+            ctx->pattern = data->pattern;
+            ctx->pattern_len = data->pattern_len;
+            command = c_search_pattern;
+        }
+    } else {
+        command = c_not_set;
+    }
+
+    return command;
 }

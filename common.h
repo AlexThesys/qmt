@@ -45,12 +45,18 @@ enum input_command {
     c_travers_heap_blocks,
     c_continue,
     c_quit_program,
+    c_not_set,
 };
 
 enum inspection_mode {
     im_process,
     im_dump,
     im_none
+};
+
+struct common_context {
+    const char* pattern;
+    size_t pattern_len;
 };
 
 typedef struct search_data {
@@ -83,10 +89,11 @@ const char* get_page_state(DWORD state);
 void print_page_type(DWORD state);
 const char* get_page_protect(DWORD state);
 bool too_many_results(size_t num_lines);
-void parse_input(const char* pattern, search_data* data);
 const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* substr, size_t substr_sz);
 char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);
+void print_help_common();
+input_command parse_command_common(common_context* ctx, search_data* data, char* cmd, char* pattern);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))
