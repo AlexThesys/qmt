@@ -25,8 +25,9 @@
 #define MAX_MEM_LIM_GB 0x80
 
 enum input_type {
-    it_hex,
-    it_ascii,
+    it_hex_string,
+    it_hex_value,
+    it_ascii_string,
     it_error_type,
 };
 

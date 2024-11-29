@@ -120,19 +120,56 @@ bool too_many_results(size_t num_lines) {
     return !(ch == 'y' || ch == 'Y');
 }
 
-static void parse_input(const char* pattern, search_data *data, input_type in_type) {
-    if (data->pattern_len > MAX_PATTERN_LEN) {
+static void parse_input(char* pattern, search_data *data, input_type in_type) {
+    if ((data->pattern_len + 1) > MAX_PATTERN_LEN) {
         fprintf(stderr, "Pattern exceeded maximum size of %d. Exiting...", MAX_PATTERN_LEN);
         data->type = it_error_type;
         return;
     }
-    uint64_t value = 0;
-    char* end;
-    value = strtoull(pattern, &end, 0x10);
-    const int is_hex = (pattern != end);
 
-    if (is_hex && (in_type == input_type::it_hex)) {
-        data->type = it_hex;
+    switch (in_type) {
+    case input_type::it_hex_string : {
+        size_t pattern_len = data->pattern_len;
+        if (pattern_len <= 1) {
+            puts("Hex string length is less than 1 byte.");
+            data->type = it_error_type;
+            break;
+        }
+        if (pattern_len & 0x01) {
+            pattern_len--;
+            puts("Hex string contains an extra nibble - discarding the last one..");
+        }
+        char byte[4] = { 0, 0, 0, 0 };
+        char* end;
+        for (int i = 0, j = 0; i < pattern_len; i += 2, j++) {
+            memcpy(byte, (pattern + i), 2);
+            uint32_t value = strtoul(byte, &end, 0x10);
+            const int is_hex = (pattern != end);
+            if (!is_hex) {
+                data->type = it_error_type;
+                return;
+            }
+            pattern[j] = (char)value;
+        }
+
+        pattern_len /= 2;
+        pattern[pattern_len] = 0;
+
+        data->type = it_hex_string;
+        data->pattern = pattern;
+        data->pattern_len = pattern_len;
+        break;
+    }
+    case input_type::it_hex_value : {
+        uint64_t value = 0;
+        char* end;
+        value = strtoull(pattern, &end, 0x10);
+        const int is_hex = (pattern != end);
+        if (!is_hex) {
+            data->type = it_error_type;
+            break;
+        }
+        data->type = it_hex_value;
         data->value = value;
         data->pattern = (const char*)&data->value;
         size_t extra_char = 0;
@@ -149,12 +186,17 @@ static void parse_input(const char* pattern, search_data *data, input_type in_ty
             printf("Max supported hex value size: %d bytes!\n", (int)sizeof(uint64_t));
             data->type = it_error_type;
         }
-    } else if (in_type == input_type::it_ascii) {
-        data->type = it_ascii;
+        break;
+    }
+    case input_type::it_ascii_string : 
+        data->type = it_ascii_string;
         data->pattern = pattern;
+        pattern[data->pattern_len] = 0;
         puts("\nSearching for an ascii string...\n");
-    } else {
+        break;
+    default : 
         data->type = it_error_type;
+        break;
     }
 }
 
@@ -298,8 +340,9 @@ char* skip_to_args(char *cmd, size_t len) {
 void print_help_common() {
     puts("********************************");
     puts("?\t\t\t - list commands (this message)");
-    puts("/x <pattern>\t\t - search for hex value (1-8 bytes wide)");
-    puts("/a <pattern>\t\t - search for ascii string (no whitespace)");
+    puts("/ <pattern>\t\t - search for a hex string");
+    puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
+    puts("/a <pattern>\t\t - search for an ascii string");
     puts("q\t\t\t - quit the program");
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
@@ -322,10 +365,12 @@ input_command parse_command_common(common_context *ctx, search_data *data, char*
         command = c_help;
     } else if (cmd[0] == '/') {
         input_type in_type = input_type::it_error_type;
-        if (cmd[1] == 'x') {
-            in_type = input_type::it_hex;
+        if (cmd[1] == ' ') {
+            in_type = input_type::it_hex_string;
+        } else if (cmd[1] == 'x') {
+            in_type = input_type::it_hex_value;
         } else if (cmd[1] == 'a') {
-            in_type = input_type::it_ascii;
+            in_type = input_type::it_ascii_string;
         } else {
             puts(unknown_command);
             return c_continue;
@@ -343,7 +388,7 @@ input_command parse_command_common(common_context *ctx, search_data *data, char*
 
         parse_input(pattern, data, in_type);
         if (data->type == it_error_type) {
-            puts("Pattern type doesn't match the command.");
+            puts("Error parsing the pattern. Does it match the command?");
             command = c_continue;
         } else {
             ctx->pattern = data->pattern;
