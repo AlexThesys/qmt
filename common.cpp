@@ -175,10 +175,13 @@ static void parse_input(char* pattern, search_data *data, input_type in_type) {
         size_t extra_char = 0;
         if (*end == 'h' || *end == 'H') {
             data->pattern_len = size_t(end - pattern);
-            extra_char = data->pattern_len & 0x01;
         } else if (pattern[0] == '0' && (pattern[1] == 'x' || pattern[1] == 'X')) {
-            data->pattern_len -= 1;
+            data->pattern_len = size_t(end - pattern);
+            data->pattern_len -= 2;
+        } else {
+            data->pattern_len = size_t(end - pattern);
         }
+        extra_char = data->pattern_len & 0x01;
         data->pattern_len = (data->pattern_len + extra_char) / 2;
         if (data->pattern_len <= sizeof(uint64_t)) {
             puts("\nSearching for a hex value...\n");
