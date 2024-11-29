@@ -20,18 +20,25 @@ struct thread_data {
     CONTEXT* context;
 };
 
+struct cpu_info_data {
+    USHORT processor_architecture;
+    // ...
+};
+
 struct dump_context {
     const char* pattern;
     size_t pattern_len;
     HANDLE file_base;
     std::vector<module_data> m_data;
     std::vector<thread_data> t_data;
+    cpu_info_data cpu_info;
 };
 
-static bool list_memory64_regions(const dump_context* ctx);
-static bool list_memory_regions(const dump_context* ctx);
+static void get_system_info(dump_context* ctx);
 static void gather_modules(dump_context* ctx);
 static void gather_threads(dump_context* ctx);
+static bool list_memory64_regions(const dump_context* ctx);
+static bool list_memory_regions(const dump_context* ctx);
 static void list_modules(const dump_context* ctx);
 static void list_threads(const dump_context* ctx);
 static void list_thread_registers(const dump_context* ctx);
@@ -362,6 +369,11 @@ int run_dump_inspection() {
     }
 
     dump_context ctx = { nullptr, 0, file_base };
+    get_system_info(&ctx);
+    if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
+        puts("Only x86-64 architecture supported at the moment. Exiting..");
+        return -1;
+    }
     gather_modules(&ctx);
     gather_threads(&ctx);
 
@@ -394,6 +406,54 @@ int run_dump_inspection() {
     CloseHandle(file_handle);
 
     return 0;
+}
+
+static void get_system_info(dump_context* ctx) {
+    MINIDUMP_SYSTEM_INFO* system_info = nullptr;
+    ULONG stream_size = 0;
+    ctx->cpu_info.processor_architecture = PROCESSOR_ARCHITECTURE_UNKNOWN;
+    if (!MiniDumpReadDumpStream(ctx->file_base, SystemInfoStream, nullptr, reinterpret_cast<void**>(&system_info), &stream_size)) {
+        perror("Failed to read SystemInfoStream.\n");
+    }
+    ctx->cpu_info.processor_architecture = system_info->ProcessorArchitecture;
+}
+
+static void gather_modules(dump_context *ctx) {
+    // Retrieve the Memory64ListStream
+    MINIDUMP_MODULE_LIST* module_list = nullptr;
+    ULONG stream_size = 0;
+    if (!MiniDumpReadDumpStream(ctx->file_base, ModuleListStream, nullptr, reinterpret_cast<void**>(&module_list), &stream_size)) {
+        perror("Failed to read ModuleListStream.\n");
+        return;
+    }
+
+    const ULONG64 num_modules = module_list->NumberOfModules;
+    const MINIDUMP_MODULE* modules = (MINIDUMP_MODULE*)((char*)(module_list)+sizeof(MINIDUMP_MODULE_LIST));
+    ctx->m_data.resize(num_modules);
+
+    for (ULONG i = 0; i < num_modules; i++) {
+        const MINIDUMP_MODULE& module = modules[i];
+        ctx->m_data[i] = { (WCHAR*)((char*)ctx->file_base + module.ModuleNameRva + sizeof(_MINIDUMP_STRING)), (char*)module.BaseOfImage, module.SizeOfImage };
+    }
+}
+
+static void gather_threads(dump_context *ctx) {
+    MINIDUMP_THREAD_LIST* thread_list = nullptr;
+    ULONG stream_size = 0;
+    if (!MiniDumpReadDumpStream(ctx->file_base, ThreadListStream, nullptr, reinterpret_cast<void**>(&thread_list), &stream_size)) {
+        perror("Failed to read ThreadListStream.\n");
+        return;
+    }
+
+    const ULONG32 num_threads = thread_list->NumberOfThreads;
+    const MINIDUMP_THREAD* threads = (MINIDUMP_THREAD*)((char*)(thread_list)+sizeof(MINIDUMP_THREAD_LIST));
+    ctx->t_data.resize(num_threads);
+
+    for (ULONG i = 0; i < num_threads; i++) {
+        const MINIDUMP_THREAD& thread = threads[i];
+        ctx->t_data[i] = { thread.ThreadId, thread.PriorityClass, thread.Priority,/* (char*)thread.Teb,*/ 
+                            (char*)(thread.Stack.StartOfMemoryRange+thread.Stack.Memory.DataSize), (CONTEXT*)((char*)ctx->file_base+thread.ThreadContext.Rva)};
+    }
 }
 
 static bool list_memory64_regions(const dump_context* ctx) {
@@ -470,44 +530,6 @@ static bool list_memory_regions(const dump_context* ctx) {
     puts("");
 
     return true;
-}
-
-static void gather_modules(dump_context *ctx) {
-    // Retrieve the Memory64ListStream
-    MINIDUMP_MODULE_LIST* module_list = nullptr;
-    ULONG stream_size = 0;
-    if (!MiniDumpReadDumpStream(ctx->file_base, ModuleListStream, nullptr, reinterpret_cast<void**>(&module_list), &stream_size)) {
-        perror("Failed to read ModuleListStream.\n");
-        return;
-    }
-
-    const ULONG64 num_modules = module_list->NumberOfModules;
-    const MINIDUMP_MODULE* modules = (MINIDUMP_MODULE*)((char*)(module_list)+sizeof(MINIDUMP_MODULE_LIST));
-    ctx->m_data.resize(num_modules);
-
-    for (ULONG i = 0; i < num_modules; i++) {
-        const MINIDUMP_MODULE& module = modules[i];
-        ctx->m_data[i] = { (WCHAR*)((char*)ctx->file_base + module.ModuleNameRva + sizeof(_MINIDUMP_STRING)), (char*)module.BaseOfImage, module.SizeOfImage };
-    }
-}
-
-static void gather_threads(dump_context *ctx) {
-    MINIDUMP_THREAD_LIST* thread_list = nullptr;
-    ULONG stream_size = 0;
-    if (!MiniDumpReadDumpStream(ctx->file_base, ThreadListStream, nullptr, reinterpret_cast<void**>(&thread_list), &stream_size)) {
-        perror("Failed to read ThreadListStream.\n");
-        return;
-    }
-
-    const ULONG32 num_threads = thread_list->NumberOfThreads;
-    const MINIDUMP_THREAD* threads = (MINIDUMP_THREAD*)((char*)(thread_list)+sizeof(MINIDUMP_THREAD_LIST));
-    ctx->t_data.resize(num_threads);
-
-    for (ULONG i = 0; i < num_threads; i++) {
-        const MINIDUMP_THREAD& thread = threads[i];
-        ctx->t_data[i] = { thread.ThreadId, thread.PriorityClass, thread.Priority,/* (char*)thread.Teb,*/ 
-                            (char*)(thread.Stack.StartOfMemoryRange+thread.Stack.Memory.DataSize), (CONTEXT*)((char*)ctx->file_base+thread.ThreadContext.Rva)};
-    }
 }
 
 static void list_modules(const dump_context* ctx) {
