@@ -131,13 +131,13 @@ static void parse_input(char* pattern, search_data *data, input_type in_type) {
     case input_type::it_hex_string : {
         size_t pattern_len = data->pattern_len;
         if (pattern_len <= 1) {
-            puts("Hex string length is less than 1 byte.");
+            puts("Hex string is shorter than 1 byte.");
             data->type = it_error_type;
             break;
         }
         if (pattern_len & 0x01) {
             pattern_len--;
-            puts("Hex string contains an extra nibble - discarding the last one..");
+            puts("\n<!> Hex string contains an extra nibble - discarded the last one..");
         }
         char byte[4] = { 0, 0, 0, 0 };
         char* end;
