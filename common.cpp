@@ -144,7 +144,7 @@ static void parse_input(char* pattern, search_data *data, input_type in_type) {
         for (int i = 0, j = 0; i < pattern_len; i += 2, j++) {
             memcpy(byte, (pattern + i), 2);
             uint32_t value = strtoul(byte, &end, 0x10);
-            const int is_hex = (pattern != end);
+            const int is_hex = ((end - byte) == 2);
             if (!is_hex) {
                 data->type = it_error_type;
                 return;
