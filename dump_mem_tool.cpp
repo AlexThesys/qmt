@@ -188,22 +188,25 @@ static void find_pattern(const dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPT
     for (size_t i = 0; i < num_regions; i++) {
         if (match[i].size()) {
             puts("------------------------------------\n");
+            bool found_in_image = false;
             const MINIDUMP_MEMORY_DESCRIPTOR64& r_info = *(info[i]);
             for (size_t m = 0, sz = ctx->m_data.size(); m < sz; m++) {
                 const module_data& mdata = ctx->m_data[m];
                 if (((ULONG64)mdata.base_of_image <= r_info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (r_info.StartOfMemoryRange + r_info.DataSize))) {
                     wprintf((LPWSTR)L"Module name: %s\n", mdata.name);
+                    found_in_image = true;
                     break;
                 }
             }
-            for (size_t t = 0, sz = ctx->t_data.size(); t < sz; t++) {
-                const thread_data& tdata = ctx->t_data[t];
-                if (((ULONG64)tdata.stack_base >= r_info.StartOfMemoryRange) && (tdata.context->Rsp <= (r_info.StartOfMemoryRange + r_info.DataSize))) {
-                    wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tdata.tid);
-                    break;
+            if (!found_in_image) {
+                for (size_t t = 0, sz = ctx->t_data.size(); t < sz; t++) {
+                    const thread_data& tdata = ctx->t_data[t];
+                    if (((ULONG64)tdata.stack_base >= r_info.StartOfMemoryRange) && (tdata.context->Rsp <= (r_info.StartOfMemoryRange + r_info.DataSize))) {
+                        wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tdata.tid);
+                        break;
+                    }
                 }
             }
-
             printf("Start of Memory Region: 0x%p | Region Size: 0x%08llx\n\n",
                 r_info.StartOfMemoryRange, r_info.DataSize);
             for (const char* m : match[i]) {
