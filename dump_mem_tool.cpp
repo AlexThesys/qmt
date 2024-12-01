@@ -33,6 +33,15 @@ struct dump_context {
     cpu_info_data cpu_info;
 };
 
+struct reg_search_result {
+    uint64_t match;
+    DWORD tid;
+    union {
+        DWORD data;
+        char reg_name[4];
+    };
+};
+
 static void get_system_info(dump_context* ctx);
 static void gather_modules(dump_context* ctx);
 static void gather_threads(dump_context* ctx);
@@ -230,8 +239,144 @@ static void search_pattern_in_dump(const dump_context *ctx) {
 
 }
 
+static void search_pattern_in_registers(const dump_context *ctx) {
+    std::vector<reg_search_result> matches;
+    reg_search_result match;
+    match.reg_name[0] = 'R';
+    match.reg_name[3] = 0;
+    const uint8_t* pattern = (const uint8_t*)ctx->common.pattern;
+    size_t pattern_len = ctx->common.pattern_len;
+    assert(pattern_len <= sizeof(uint64_t));
+    for (const thread_data &data : ctx->t_data) {
+        if (strstr_u8((const uint8_t*)&data.context->Rax, sizeof(data.context->Rax), pattern, pattern_len)) {
+            match.match = data.context->Rax;
+            match.tid = data.tid;
+            match.reg_name[1] = 'A'; match.reg_name[2] = 'X';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->Rbx, sizeof(data.context->Rbx), pattern, pattern_len)) {
+            match.match = data.context->Rbx;
+            match.tid = data.tid;
+            match.reg_name[1] = 'B'; match.reg_name[2] = 'X';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->Rcx, sizeof(data.context->Rcx), pattern, pattern_len)) {
+            match.match = data.context->Rcx;
+            match.tid = data.tid;
+            match.reg_name[1] = 'C'; match.reg_name[2] = 'X';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->Rdx, sizeof(data.context->Rdx), pattern, pattern_len)) {
+            match.match = data.context->Rdx;
+            match.tid = data.tid;
+            match.reg_name[1] = 'D'; match.reg_name[2] = 'X';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->Rdi, sizeof(data.context->Rdi), pattern, pattern_len)) {
+            match.match = data.context->Rdi;
+            match.tid = data.tid;
+            match.reg_name[1] = 'D'; match.reg_name[2] = 'I';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->Rsi, sizeof(data.context->Rsi), pattern, pattern_len)) {
+            match.match = data.context->Rsi;
+            match.tid = data.tid;
+            match.reg_name[1] = 'S'; match.reg_name[2] = 'I';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->Rsp, sizeof(data.context->Rsp), pattern, pattern_len)) {
+            match.match = data.context->Rsp;
+            match.tid = data.tid;
+            match.reg_name[1] = 'S'; match.reg_name[2] = 'P';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->Rbp, sizeof(data.context->Rbp), pattern, pattern_len)) {
+            match.match = data.context->Rbp;
+            match.tid = data.tid;
+            match.reg_name[1] = 'B'; match.reg_name[2] = 'P';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->Rip, sizeof(data.context->Rip), pattern, pattern_len)) {
+            match.match = data.context->Rip;
+            match.tid = data.tid;
+            match.reg_name[1] = 'I'; match.reg_name[2] = 'P';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->R8, sizeof(data.context->R8), pattern, pattern_len)) {
+            match.match = data.context->R8;
+            match.tid = data.tid;
+            match.reg_name[1] = '8'; match.reg_name[2] = ' ';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->R9, sizeof(data.context->R9), pattern, pattern_len)) {
+            match.match = data.context->R9;
+            match.tid = data.tid;
+            match.reg_name[1] = '9'; match.reg_name[2] = ' ';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->R10, sizeof(data.context->R10), pattern, pattern_len)) {
+            match.match = data.context->R10;
+            match.tid = data.tid;
+            match.reg_name[1] = '1'; match.reg_name[2] = '0';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->R11, sizeof(data.context->R11), pattern, pattern_len)) {
+            match.match = data.context->R11;
+            match.tid = data.tid;
+            match.reg_name[1] = '1'; match.reg_name[2] = '1';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->R12, sizeof(data.context->R12), pattern, pattern_len)) {
+            match.match = data.context->R12;
+            match.tid = data.tid;
+            match.reg_name[1] = '1'; match.reg_name[2] = '2';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->R13, sizeof(data.context->R13), pattern, pattern_len)) {
+            match.match = data.context->R13;
+            match.tid = data.tid;
+            match.reg_name[1] = '1'; match.reg_name[2] = '3';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->R14, sizeof(data.context->R14), pattern, pattern_len)) {
+            match.match = data.context->R14;
+            match.tid = data.tid;
+            match.reg_name[1] = '1'; match.reg_name[2] = '4';
+            matches.push_back(match);
+        }
+        if (strstr_u8((const uint8_t*)&data.context->R15, sizeof(data.context->R15), pattern, pattern_len)) {
+            match.match = data.context->R15;
+            match.tid = data.tid;
+            match.reg_name[1] = '1'; match.reg_name[2] = '5';
+            matches.push_back(match);
+        }
+    }
+
+    const size_t num_matches = matches.size();
+    if (!num_matches) {
+        puts("*** No matches found. ***");
+        return;
+    }
+    if (too_many_results(num_matches)) {
+        return;
+    }
+    printf("*** Total number of matches: %llu ***\n", num_matches);
+
+    DWORD tid_prev = (DWORD)(-1);
+    for (const reg_search_result &res : matches) {
+        if (tid_prev != res.tid) {
+            puts("\n------------------------------------\n");
+            printf("ThreadID: 0x%04x\n\n", res.tid);
+            tid_prev = res.tid;
+        }
+        printf("\t%s: 0x%08llx\n", res.reg_name, res.match);
+    }
+    puts("");
+}
+
 static void print_help() {
     puts("--------------------------------");
+    puts("/xr <pattern>\t\t - search for a hex value in registers");
     puts("lr\t\t\t - list thread registers");
     puts("lmr\t\t\t - list memory regions");
     puts("lmi\t\t\t - list memory regions info");
@@ -288,10 +433,12 @@ static void execute_command(input_command cmd, const dump_context *ctx) {
         print_help_common();
         print_help();
         break;
-    case c_search_pattern : {
+    case c_search_pattern :
         search_pattern_in_dump(ctx);
         break;
-    }
+    case c_search_pattern_in_registers :
+        search_pattern_in_registers(ctx);
+        break;
     case c_list_memory_regions :
         if (!list_memory64_regions(ctx)) {
             list_memory_regions(ctx);

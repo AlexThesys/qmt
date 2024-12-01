@@ -6,6 +6,7 @@ const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUT
                                     "PAGE_READWRITE", "PAGE_WRITECOPY", "PAGE_TARGETS_INVALID", "UNKNOWN" };
 
 const char* unknown_command = "Unknown command.";
+const char* command_not_implemented = "Command not implemented.";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-m=", "--memlimit=", "-v", "--version",
                                 "-p", "--process", "-d", "--dump" };
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
@@ -397,6 +398,16 @@ input_command parse_command_common(common_context *ctx, search_data *data, char*
             ctx->pattern = data->pattern;
             ctx->pattern_len = data->pattern_len;
             command = c_search_pattern;
+            if ((cmd[1] == 'x')) {
+                if (cmd[2] == ' ') {
+                    command = c_search_pattern;
+                } else if (cmd[2] == 'r') {
+                    command = c_search_pattern_in_registers;
+                } else {
+                    puts(unknown_command);
+                    return c_continue;
+                }
+            }
         }
     } else {
         command = c_not_set;

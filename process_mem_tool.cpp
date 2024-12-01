@@ -238,6 +238,10 @@ static void execute_command(input_command cmd, process_context *ctx) {
         CloseHandle(process);
         break;
     }
+    case c_search_pattern_in_registers :
+        puts(command_not_implemented);
+        puts("");
+        break;
     case c_list_pids:
         list_processes();
         break;

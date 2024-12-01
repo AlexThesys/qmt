@@ -34,6 +34,7 @@ enum input_type {
 enum input_command {
     c_help,
     c_search_pattern,
+    c_search_pattern_in_registers,
     c_list_pids,
     c_list_modules,
     c_list_threads,
@@ -72,6 +73,7 @@ extern const char* page_type[];
 extern const char* page_protect[];
 
 extern const char* unknown_command;
+extern const char* command_not_implemented;
 
 extern std::mutex g_mtx;
 extern std::condition_variable g_cv;
