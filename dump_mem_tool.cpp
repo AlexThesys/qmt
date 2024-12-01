@@ -377,8 +377,8 @@ static void search_pattern_in_registers(const dump_context *ctx) {
 static void print_help() {
     puts("--------------------------------");
     puts("/xr <pattern>\t\t - search for a hex value in registers");
-    puts("lr\t\t\t - list thread registers");
-    puts("lmr\t\t\t - list memory regions");
+    puts("ltr\t\t\t - list thread registers");
+    puts("lm\t\t\t - list memory regions");
     puts("lmi\t\t\t - list memory regions info");
     puts("lmic\t\t\t - list committed memory regions info");
     puts("********************************\n");
@@ -399,7 +399,7 @@ static input_command parse_command(dump_context *ctx, search_data *data, char* c
                 command = c_continue;
             }
         } else if (cmd[1] == 'm') {
-            if (cmd[2] == 'r') {
+            if (cmd[2] == 0) {
                 command = c_list_memory_regions;
             } else if (cmd[2] == 'i') {
                 if (cmd[3] == 0) {
