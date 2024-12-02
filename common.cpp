@@ -205,6 +205,8 @@ static void parse_input(char* pattern, search_data *data, input_type in_type) {
 }
 
 const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* substr, size_t substr_sz) {
+    constexpr size_t step =  sizeof(__m128i) / sizeof(uint8_t);
+
     if (/*!substr_sz || */(str_sz < substr_sz)) {
         return NULL;
     }

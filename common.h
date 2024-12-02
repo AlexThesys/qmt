@@ -19,7 +19,7 @@
 #define MAX_PATTERN_LEN 0x40
 #define MAX_ARG_LEN MAX_PATTERN_LEN
 #define MAX_COMMAND_LEN 0X10
-#define MAX_OMP_THREADS 8
+#define MAX_OMP_THREADS 0x10
 #define MAX_MEMORY_USAGE_IDEAL 0X40000000
 #define TOO_MANY_RESULTS 0x400
 #define MAX_MEM_LIM_GB 0x80
@@ -85,7 +85,6 @@ extern inspection_mode g_inspection_mode;
 
 #define _max(x,y) (x) > (y) ? (x) : (y)
 #define _min(x,y) (x) < (y) ? (x) : (y)
-#define step (sizeof(__m128i) / sizeof(uint8_t))
 
 int check_architecture_rt();
 const char* get_page_state(DWORD state);
