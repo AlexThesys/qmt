@@ -20,7 +20,7 @@
 #define MAX_ARG_LEN MAX_PATTERN_LEN
 #define MAX_COMMAND_LEN 0X10
 #define MAX_OMP_THREADS 0x10
-#define MAX_MEMORY_USAGE_IDEAL 0X40000000
+#define MAX_MEMORY_USAGE_IDEAL 0X80000000
 #define TOO_MANY_RESULTS 0x400
 #define MAX_MEM_LIM_GB 0x80
 
@@ -77,9 +77,9 @@ extern const char* command_not_implemented;
 
 extern std::mutex g_mtx;
 extern std::condition_variable g_cv;
-extern LONG g_memory_usage_bytes;
+extern LONG64 g_memory_usage_bytes;
 extern int g_max_omp_threads;
-extern int g_memory_limit;
+extern LONG64 g_memory_limit;
 extern int g_show_failed_readings;
 extern inspection_mode g_inspection_mode;
 
@@ -105,4 +105,8 @@ inline int is_hex(const char* pattern, size_t pattern_len) {
 inline bool is_pow_2(uint64_t x)
 {
     return (x & (x - 1)) == 0;
+}
+
+inline int multiple_of_n(int64_t val, int64_t n) {
+    return ((val - 1) | (n - 1)) + 1;
 }

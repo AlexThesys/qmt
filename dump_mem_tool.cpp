@@ -116,12 +116,14 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
     const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
     assert(is_pow_2(alloc_granularity));
 
+    g_memory_usage_bytes = 0;
+
     const size_t num_regions = memory_list->NumberOfMemoryRanges;
 
     std::vector<std::vector<const char*>> match; match.resize(num_regions);
     std::vector<uint64_t> rva; rva.reserve(num_regions);
     std::vector<MINIDUMP_MEMORY_DESCRIPTOR64> info; info.reserve(num_regions);
-    size_t max_memory_usage = MAX_MEMORY_USAGE_IDEAL;
+    LONG64 max_memory_usage = g_memory_limit;
 
     {
         size_t cumulative_offset = 0;
@@ -139,64 +141,95 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
 
     const char* pattern = ctx->common.pattern;
     const size_t pattern_len = ctx->common.pattern_len;
+    const size_t extra_chunk = multiple_of_n(pattern_len, sizeof(__m128i));
+    const size_t block_size = alloc_granularity;
+    const size_t bytes_to_read_ideal = block_size + extra_chunk;
 
-    const int num_threads = _min(g_max_omp_threads, omp_get_num_procs());
-    omp_set_num_threads(num_threads);   
+    const int num_threads = _min(num_regions, _min(g_max_omp_threads, omp_get_num_procs()));
+    omp_set_num_threads(num_threads);
 #pragma omp parallel for schedule(dynamic, 1) shared(match,rva,info)
     for (int64_t i = 0;  i < (int64_t)num_regions; i++) {
         const size_t region_size = info[i].DataSize;
-        {
-            std::unique_lock<std::mutex> lk(g_mtx);
-            while (true) {
-                g_cv.wait(lk, [max_memory_usage] { return (g_memory_usage_bytes < max_memory_usage); });
-                if (g_memory_usage_bytes < max_memory_usage) {
-                    g_memory_usage_bytes += region_size;
-                    break;
-                }
-            }
+        if (region_size < pattern_len) {
+            continue;
         }
-
         const uint64_t offset = rva[i];
-        const uint64_t offset_aligned = offset & ~(alloc_granularity - 1);
-        const uint64_t reminder = offset - offset_aligned;
-        DWORD high = (DWORD)((offset_aligned >> 0x20) & 0xFFFFFFFF);
-        DWORD low = (DWORD)(offset_aligned & 0xFFFFFFFF);
-        HANDLE file_base = MapViewOfFile(ctx->file_mapping, FILE_MAP_READ, high, low, region_size + reminder);
-        if (!file_base) {
-            perror("Failed to map view of file.\n");
-            continue;
-        }
+        uint64_t offset_aligned = offset & ~(alloc_granularity - 1);
+        uint64_t reminder = offset - offset_aligned;
+        size_t total_bytes_to_map = region_size + reminder;
+        size_t bytes_offset = 0;
 
-        const char* buffer = ((const char*)file_base + reminder);
-        if (!buffer) {
-            puts("Empty memory region!");
-            continue;
-        }
-
-        if (region_size >= pattern_len) {
-            const char* buffer_ptr = buffer;
-            size_t buffer_size = region_size;
-
-            while (buffer_size >= pattern_len) {
-                const char* old_buf_ptr = buffer_ptr;
-                buffer_ptr = (const char*)strstr_u8((const uint8_t*)buffer_ptr, buffer_size, (const uint8_t*)pattern, pattern_len);
-                if (!buffer_ptr) {
-                    break;
-                }
-
-                const size_t buffer_offset = buffer_ptr - buffer;
-                match[i].push_back((const char*)(info[i].StartOfMemoryRange + buffer_offset));
-
-                buffer_ptr++;
-                buffer_size -= (buffer_ptr - old_buf_ptr);
+        while (total_bytes_to_map) {
+            size_t bytes_to_map;
+            if (total_bytes_to_map >= bytes_to_read_ideal) {
+                bytes_to_map = bytes_to_read_ideal;
+                total_bytes_to_map -= block_size;
+            } else {
+                bytes_to_map = total_bytes_to_map;
+                total_bytes_to_map = 0;
             }
+            size_t bytes_to_read = bytes_to_map - reminder;
+
+            const DWORD high = (DWORD)((offset_aligned >> 0x20) & 0xFFFFFFFF);
+            const DWORD low = (DWORD)(offset_aligned & 0xFFFFFFFF);
+            offset_aligned += block_size;
+
+            {
+                std::unique_lock<std::mutex> lk(g_mtx);
+                while (true) {
+                    g_cv.wait(lk, [max_memory_usage] { return (g_memory_usage_bytes < max_memory_usage); });
+                    if (g_memory_usage_bytes < max_memory_usage) {
+                        g_memory_usage_bytes += bytes_to_map;
+                        break;
+                    }
+                }
+            }
+
+            HANDLE file_base = MapViewOfFile(ctx->file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
+            if (!file_base) {
+                std::unique_lock<std::mutex> lk(g_mtx);
+                g_memory_usage_bytes -= bytes_to_map;
+                perror("Failed to map view of file.\n");
+                continue;
+            }
+
+            const char* buffer = ((const char*)file_base + reminder);
+            reminder = 0; // only needed for the first iteration
+            
+            if (!buffer) {
+                UnmapViewOfFile(file_base);
+                std::unique_lock<std::mutex> lk(g_mtx);
+                g_memory_usage_bytes -= bytes_to_map;
+                puts("Empty memory region!");
+                continue;
+            }
+
+
+            if (bytes_to_read >= pattern_len) {
+                const char* buffer_ptr = buffer;
+                size_t buffer_size = bytes_to_read;
+
+                while (buffer_size >= pattern_len) {
+                    const char* old_buf_ptr = buffer_ptr;
+                    buffer_ptr = (const char*)strstr_u8((const uint8_t*)buffer_ptr, buffer_size, (const uint8_t*)pattern, pattern_len);
+                    if (!buffer_ptr) {
+                        break;
+                    }
+
+                    const size_t buffer_offset = buffer_ptr - buffer;
+                    match[i].push_back((const char*)(info[i].StartOfMemoryRange + buffer_offset));
+
+                    buffer_ptr++;
+                    buffer_size -= (buffer_ptr - old_buf_ptr);
+                }
+            }
+            UnmapViewOfFile(file_base);
+            {
+                std::unique_lock<std::mutex> lk(g_mtx);
+                g_memory_usage_bytes -= bytes_to_map;
+            }
+            g_cv.notify_all(); // permitted to be called concurrentely
         }
-        UnmapViewOfFile(file_base);
-        {
-            std::unique_lock<std::mutex> lk(g_mtx);
-            g_memory_usage_bytes -= region_size;
-        }
-        g_cv.notify_all(); // permitted to be called concurrentely
     }
 
     if (!remap_file(ctx->file_mapping,  &ctx->file_base)) {

@@ -10,14 +10,14 @@ const char* command_not_implemented = "Command not implemented.";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-m=", "--memlimit=", "-v", "--version",
                                 "-p", "--process", "-d", "--dump" };
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.2.0";
+static const char* program_version = "Version 0.2.4";
 static const char* program_name = "Quick Memory Tools";
 
 std::mutex g_mtx;
 std::condition_variable g_cv;
-LONG g_memory_usage_bytes = 0; // accessed from different threads
+LONG64 g_memory_usage_bytes = 0; // accessed from different threads
 int g_max_omp_threads = MAX_OMP_THREADS;
-int g_memory_limit = MAX_MEMORY_USAGE_IDEAL;
+LONG64 g_memory_limit = MAX_MEMORY_USAGE_IDEAL;
 int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
 

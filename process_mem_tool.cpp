@@ -20,6 +20,13 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
     std::vector<MEMORY_BASIC_INFORMATION> info;
     size_t max_memory_usage = g_memory_limit;
 
+    SYSTEM_INFO sysinfo = { 0 };
+    ::GetSystemInfo(&sysinfo);
+    const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
+    assert(is_pow_2(alloc_granularity));
+
+    g_memory_usage_bytes = 0;
+
     puts("Searching committed memory...");
     puts("\n------------------------------------\n");
     {
@@ -36,84 +43,132 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
     const size_t num_regions = info.size();
     match.resize(num_regions);
 
-    const int num_threads = _min(g_max_omp_threads, omp_get_num_procs());
+    const int num_threads = _min(num_regions, _min(g_max_omp_threads, omp_get_num_procs()));
+    std::vector<char*> buffers(num_threads);
+    const size_t extra_chunk = multiple_of_n(pattern_len, sizeof(__m128i));
+    const size_t block_size = alloc_granularity;
+    const size_t bytes_to_read_ideal = block_size + extra_chunk;
+    for (char*& b : buffers) {
+        b = (char*)malloc(alloc_granularity + extra_chunk);
+    }
+
     omp_set_num_threads(num_threads);   
 #pragma omp parallel for schedule(dynamic, 1) shared(match,p,info)
     for (int64_t i = 0;  i < (int64_t)num_regions; i++) {
+        const int omp_tid = omp_get_thread_num();
+        char* buffer = buffers[omp_tid];
+
         assert((info[i].Type == MEM_MAPPED || info[i].Type == MEM_PRIVATE || info[i].Type == MEM_IMAGE));
         size_t region_size = info[i].RegionSize;
-        {
-            std::unique_lock<std::mutex> lk(g_mtx);
-            while (true) {
-                g_cv.wait(lk, [max_memory_usage] { return (g_memory_usage_bytes < max_memory_usage); });
-                if (g_memory_usage_bytes < max_memory_usage) {
-                    g_memory_usage_bytes += region_size;
-                    break;
-                }
-            }
+        if (region_size < pattern_len) {
+            continue;
         }
+        bool first_try = true;
+        size_t bytes_offset = 0;
 
-        char* buffer = (char*)malloc(region_size);
-        if (!buffer) {
-            puts("Heap allocation failed!");
-            break;;
-        }
-
-        SIZE_T bytes_read;
-        const BOOL res = ReadProcessMemory(process, p[i], buffer, region_size, &bytes_read);
-        if (!res || (bytes_read != region_size)) {
-            if (!g_show_failed_readings) {
-                if (!res) {
-                    continue;
-                } else {
-                    region_size = bytes_read;
-                }
+        while (region_size) {
+            size_t bytes_to_read;
+            size_t new_region_size;
+            if (region_size >= bytes_to_read_ideal) {
+                bytes_to_read = bytes_to_read_ideal;
+                new_region_size = region_size - block_size;
             } else {
-                std::unique_lock<std::mutex> lk(g_err_mtx);
-                if (info[i].Type == MEM_IMAGE) {
-                    char module_name[MAX_PATH];
-                    if (GetModuleFileNameExA(process, (HMODULE)info[i].AllocationBase, module_name, MAX_PATH)) {
-                        puts("------------------------------------\n");
-                        printf("Module name: %s\n", module_name);
+                bytes_to_read = region_size;
+                new_region_size = 0;
+            }
+
+            {
+                std::unique_lock<std::mutex> lk(g_mtx);
+                while (true) {
+                    g_cv.wait(lk, [max_memory_usage] { return (g_memory_usage_bytes < max_memory_usage); });
+                    if (g_memory_usage_bytes < max_memory_usage) {
+                        g_memory_usage_bytes += bytes_to_read;
+                        break;
                     }
                 }
-                printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
-                    info[i].BaseAddress, info[i].AllocationBase, info[i].RegionSize, get_page_protect(info[i].Protect), get_page_state(info[i].State));
-                print_page_type(info[i].Type);
-                if (!res) {
-                    fprintf(stderr, "Failed reading process memory. Error code: %lu\n\n", GetLastError());
-                    continue;
+            }
+
+            SIZE_T bytes_read;
+            const BOOL res = ReadProcessMemory(process, p[i] + bytes_offset, buffer, bytes_to_read, &bytes_read);
+            if (!res || (bytes_read != bytes_to_read)) {
+                const size_t skip = _min(block_size, bytes_read);
+                if (!g_show_failed_readings) {
+                    if (!res || !first_try) {
+                        bytes_offset += block_size;
+                        region_size = new_region_size;
+                        std::unique_lock<std::mutex> lk(g_mtx);
+                        g_memory_usage_bytes -= bytes_to_read;
+                        continue;
+                    } else {
+                        if (new_region_size) {
+                            new_region_size = region_size - skip;
+                        } else {
+                            new_region_size = bytes_to_read - skip;
+                        }
+                        first_try = false;
+                    }
                 } else {
-                    region_size = bytes_read;
-                    printf("Process memory not read in it's entirety! 0x%llx bytes skipped out of 0x%llx\n\n", (region_size - bytes_read), region_size);
+                    std::unique_lock<std::mutex> lk(g_err_mtx);
+                    if (info[i].Type == MEM_IMAGE) {
+                        char module_name[MAX_PATH];
+                        if (GetModuleFileNameExA(process, (HMODULE)info[i].AllocationBase, module_name, MAX_PATH)) {
+                            puts("------------------------------------\n");
+                            printf("Module name: %s\n", module_name);
+                        }
+                    }
+                    printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+                        info[i].BaseAddress, info[i].AllocationBase, info[i].RegionSize, get_page_protect(info[i].Protect), get_page_state(info[i].State));
+                    print_page_type(info[i].Type);
+                    if (!res || !first_try) {
+                        fprintf(stderr, "Failed reading process memory. Error code: %lu\n\n", GetLastError());
+                        bytes_offset += block_size;
+                        region_size = new_region_size;
+                        std::unique_lock<std::mutex> lk(g_mtx);
+                        g_memory_usage_bytes -= bytes_to_read;
+                        continue;
+                    } else {
+                        if (new_region_size) {
+                            new_region_size = region_size - skip;
+                        } else {
+                            new_region_size = bytes_to_read - skip;
+                        }
+                        first_try = false;
+                        printf("Process memory not read in it's entirety! 0x%llx bytes skipped out of 0x%llx\n\n", (bytes_to_read - bytes_read), bytes_to_read);
+                    }
                 }
             }
-        }
+            bytes_offset += block_size;
+            region_size = new_region_size;
+            first_try = true;
 
-        if (bytes_read >= pattern_len) {
-            const char* buffer_ptr = buffer;
-            size_t buffer_size = region_size;
+            if (bytes_read >= pattern_len) {
+                const char* buffer_ptr = buffer;
+                size_t buffer_size = bytes_read;
 
-            while (buffer_size >= pattern_len) {
-                const char* old_buf_ptr = buffer_ptr;
-                buffer_ptr = (const char*)strstr_u8((const uint8_t*)buffer_ptr, buffer_size, (const uint8_t*)pattern, pattern_len);
-                if (!buffer_ptr) {
-                    break;
+                while (buffer_size >= pattern_len) {
+                    const char* old_buf_ptr = buffer_ptr;
+                    buffer_ptr = (const char*)strstr_u8((const uint8_t*)buffer_ptr, buffer_size, (const uint8_t*)pattern, pattern_len);
+                    if (!buffer_ptr) {
+                        break;
+                    }
+
+                    const size_t buffer_offset = buffer_ptr - buffer;
+                    match[i].push_back(p[i] + buffer_offset);
+
+                    buffer_ptr++;
+                    buffer_size -= (buffer_ptr - old_buf_ptr);
                 }
-
-                const size_t buffer_offset = buffer_ptr - buffer;
-                match[i].push_back(p[i] + buffer_offset);
-
-                buffer_ptr++;
-                buffer_size -= (buffer_ptr - old_buf_ptr);
             }
+            {
+                std::unique_lock<std::mutex> lk(g_mtx);
+                g_memory_usage_bytes -= bytes_to_read;
+            }
+            g_cv.notify_all(); // permitted to be called concurrentely
         }
-        free(buffer);
-        {
-            std::unique_lock<std::mutex> lk(g_mtx);
-            g_memory_usage_bytes -= region_size;
-        }
-        g_cv.notify_all(); // permitted to be called concurrentely
+    }
+
+    for (char* b : buffers) {
+        free(b);
     }
 
     size_t num_matches = 0;
