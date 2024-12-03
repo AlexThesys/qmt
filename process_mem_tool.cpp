@@ -18,7 +18,7 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
     std::vector<std::vector<const char*>> match;
     std::vector<const char*> p;
     std::vector<MEMORY_BASIC_INFORMATION> info;
-    size_t max_memory_usage = g_memory_limit;
+    const LONG64 max_memory_usage = g_memory_limit;
 
     SYSTEM_INFO sysinfo = { 0 };
     ::GetSystemInfo(&sysinfo);
@@ -36,7 +36,6 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
             if (_info.State == MEM_COMMIT) {
                 info.push_back(_info);
                 p.push_back(_p);
-                max_memory_usage = _max(max_memory_usage, _info.RegionSize);
             }
         }
     }

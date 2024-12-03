@@ -123,7 +123,7 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
     std::vector<std::vector<const char*>> match; match.resize(num_regions);
     std::vector<uint64_t> rva; rva.reserve(num_regions);
     std::vector<MINIDUMP_MEMORY_DESCRIPTOR64> info; info.reserve(num_regions);
-    LONG64 max_memory_usage = g_memory_limit;
+    const LONG64 max_memory_usage = g_memory_limit;
 
     {
         size_t cumulative_offset = 0;
@@ -133,7 +133,6 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
             SIZE_T memory_size = static_cast<SIZE_T>(mem_desc.DataSize);
             info.push_back(mem_desc);
             rva.push_back(memory_data);
-            max_memory_usage = _max(max_memory_usage, mem_desc.DataSize);
             cumulative_offset += mem_desc.DataSize;
         }
         UnmapViewOfFile(ctx->file_base);
