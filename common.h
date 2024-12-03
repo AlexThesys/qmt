@@ -23,6 +23,7 @@
 #define MAX_MEMORY_USAGE_IDEAL 0X100000000
 #define TOO_MANY_RESULTS 0x400
 #define MAX_MEM_LIM_GB 0x80
+#define MAX_ALLOC_BLOCKS 0x08
 
 enum input_type {
     it_hex_string,
@@ -80,6 +81,7 @@ extern std::condition_variable g_cv;
 extern LONG64 g_memory_usage_bytes;
 extern int g_max_omp_threads;
 extern LONG64 g_memory_limit;
+extern LONG64 g_num_alloc_blocks;
 extern int g_show_failed_readings;
 extern inspection_mode g_inspection_mode;
 

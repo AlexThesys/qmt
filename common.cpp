@@ -8,7 +8,7 @@ const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUT
 const char* unknown_command = "Unknown command.";
 const char* command_not_implemented = "Command not implemented.";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-m=", "--memlimit=", "-v", "--version",
-                                "-p", "--process", "-d", "--dump" };
+                                "-p", "--process", "-d", "--dump", "-b=", "--blocks=" };
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
 static const char* program_version = "Version 0.2.5";
 static const char* program_name = "Quick Memory Tools";
@@ -18,6 +18,7 @@ std::condition_variable g_cv;
 LONG64 g_memory_usage_bytes = 0; // accessed from different threads
 int g_max_omp_threads = MAX_OMP_THREADS;
 LONG64 g_memory_limit = MAX_MEMORY_USAGE_IDEAL;
+LONG64 g_num_alloc_blocks = 1;
 int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
 
@@ -251,7 +252,8 @@ static void print_help() {
     puts("-p || --process\t\t\t\t\t -- launch in process inspection mode");
     puts("-d || --dump\t\t\t\t\t -- launch in dump inspection mode\n");
     puts("-t=<num_threads> || --threads=<num_threads>\t -- limit the number of OMP threads");
-    puts("-m=<GB> || --memlimit=<GB>\t\t\t -- limit the memory usage (in GB) (process mode only)");
+    puts("-m=<GB> || --memlimit=<GB>\t\t\t -- limit the memory usage (in GB)");
+    puts("-b=<N> || --block=<N>\t\t\t\t -- alloc block size == (dwAllocationGranularity * N), N=[1-8]");
     puts("-f || --show-failed-readings\t\t\t -- show the regions, that failed to be read (process mode only)\n");
 }
 
@@ -302,6 +304,15 @@ bool parse_cmd_args(int argc, const char** argv) {
         } else if ((0 == strcmp(argv[i], cmd_args[12])) || (0 == strcmp(argv[i], cmd_args[13]))) { // dump mode
             g_inspection_mode = inspection_mode::im_dump;
             selected_options |= 1 << 7;
+        } else if ((argv[i] == strstr(argv[i], cmd_args[14])) || (argv[i] == strstr(argv[i], cmd_args[15]))) { // num alloc blocks
+            const char* nb = (argv[i][1] == '-') ? (argv[i] + strlen(cmd_args[15])) : (argv[i] + strlen(cmd_args[14]));
+            char* end = NULL;
+            size_t arg_len = strlen(nb);
+            DWORD nblocks = strtoul(nb, &end, is_hex(nb, arg_len) ? 16 : 10);
+            if (nb != end) {
+                nblocks = _max(1, _min(MAX_ALLOC_BLOCKS, nblocks));
+                g_num_alloc_blocks = nblocks;
+            }
         }
             // ...
     }

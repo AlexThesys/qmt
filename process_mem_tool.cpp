@@ -45,10 +45,10 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
     const int num_threads = _min(num_regions, _min(g_max_omp_threads, omp_get_num_procs()));
     std::vector<char*> buffers(num_threads);
     const size_t extra_chunk = multiple_of_n(pattern_len, sizeof(__m128i));
-    const size_t block_size = alloc_granularity;
+    const size_t block_size = alloc_granularity * g_num_alloc_blocks;
     const size_t bytes_to_read_ideal = block_size + extra_chunk;
     for (char*& b : buffers) {
-        b = (char*)malloc(alloc_granularity + extra_chunk);
+        b = (char*)malloc(bytes_to_read_ideal);
     }
 
     omp_set_num_threads(num_threads);   

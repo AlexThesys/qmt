@@ -141,7 +141,7 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
     const char* pattern = ctx->common.pattern;
     const size_t pattern_len = ctx->common.pattern_len;
     const size_t extra_chunk = multiple_of_n(pattern_len, sizeof(__m128i));
-    const size_t block_size = alloc_granularity;
+    const size_t block_size = alloc_granularity * g_num_alloc_blocks;
     const size_t bytes_to_read_ideal = block_size + extra_chunk;
 
     const int num_threads = _min(num_regions, _min(g_max_omp_threads, omp_get_num_procs()));
