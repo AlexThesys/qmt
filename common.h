@@ -10,7 +10,7 @@
 #include <tchar.h>
 #include <assert.h>
 #include <emmintrin.h>
-#include <omp.h>
+#include <omp.h> // + compiler arg /openmp
 #include <mutex>
 #include <condition_variable>
 #include <vector> // temp
@@ -100,4 +100,9 @@ input_command parse_command_common(common_context* ctx, search_data* data, char*
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))
         || ((pattern_len > 3) && (pattern[0] == '0' && pattern[1] == 'x')));
+}
+
+inline bool is_pow_2(uint64_t x)
+{
+    return (x & (x - 1)) == 0;
 }

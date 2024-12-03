@@ -28,6 +28,7 @@ struct cpu_info_data {
 struct dump_context {
     common_context common;
     HANDLE file_base;
+    HANDLE file_mapping;
     std::vector<module_data> m_data;
     std::vector<thread_data> t_data;
     cpu_info_data cpu_info;
@@ -106,29 +107,34 @@ static bool remap_file(HANDLE file_mapping_handle, LPVOID* file_base) {
     return true;
 }
 
-static void find_pattern(const dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors, const MINIDUMP_MEMORY64_LIST* memory_list) {
+static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors, const MINIDUMP_MEMORY64_LIST* memory_list) {
     puts("Searching crash dump memory...");
     puts("\n------------------------------------\n");
     
+    SYSTEM_INFO sysinfo = { 0 };
+    ::GetSystemInfo(&sysinfo);
+    const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
+    assert(is_pow_2(alloc_granularity));
+
     const size_t num_regions = memory_list->NumberOfMemoryRanges;
 
     std::vector<std::vector<const char*>> match; match.resize(num_regions);
-    std::vector<const char*> p; p.reserve(num_regions);
-    std::vector<const MINIDUMP_MEMORY_DESCRIPTOR64*> info; info.reserve(num_regions);
+    std::vector<uint64_t> rva; rva.reserve(num_regions);
+    std::vector<MINIDUMP_MEMORY_DESCRIPTOR64> info; info.reserve(num_regions);
     size_t max_memory_usage = MAX_MEMORY_USAGE_IDEAL;
-
 
     {
         size_t cumulative_offset = 0;
         for (ULONG i = 0; i < num_regions; ++i) {
             const MINIDUMP_MEMORY_DESCRIPTOR64& mem_desc = memory_descriptors[i];
-            char* memory_data = reinterpret_cast<char*>(ctx->file_base) + memory_list->BaseRva + cumulative_offset;
+            const uint64_t memory_data = memory_list->BaseRva + cumulative_offset;
             SIZE_T memory_size = static_cast<SIZE_T>(mem_desc.DataSize);
-            info.push_back(&mem_desc);
-            p.push_back(memory_data);
+            info.push_back(mem_desc);
+            rva.push_back(memory_data);
             max_memory_usage = _max(max_memory_usage, mem_desc.DataSize);
             cumulative_offset += mem_desc.DataSize;
         }
+        UnmapViewOfFile(ctx->file_base);
     }
 
     const char* pattern = ctx->common.pattern;
@@ -136,9 +142,9 @@ static void find_pattern(const dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPT
 
     const int num_threads = _min(g_max_omp_threads, omp_get_num_procs());
     omp_set_num_threads(num_threads);   
-#pragma omp parallel for schedule(dynamic, 1) shared(match,p,info)
+#pragma omp parallel for schedule(dynamic, 1) shared(match,rva,info)
     for (int64_t i = 0;  i < (int64_t)num_regions; i++) {
-        size_t region_size = info[i]->DataSize;
+        const size_t region_size = info[i].DataSize;
         {
             std::unique_lock<std::mutex> lk(g_mtx);
             while (true) {
@@ -150,7 +156,18 @@ static void find_pattern(const dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPT
             }
         }
 
-        const char* buffer = p[i];
+        const uint64_t offset = rva[i];
+        const uint64_t offset_aligned = offset & ~(alloc_granularity - 1);
+        const uint64_t reminder = offset - offset_aligned;
+        DWORD high = (DWORD)((offset_aligned >> 0x20) & 0xFFFFFFFF);
+        DWORD low = (DWORD)(offset_aligned & 0xFFFFFFFF);
+        HANDLE file_base = MapViewOfFile(ctx->file_mapping, FILE_MAP_READ, high, low, region_size + reminder);
+        if (!file_base) {
+            perror("Failed to map view of file.\n");
+            continue;
+        }
+
+        const char* buffer = ((const char*)file_base + reminder);
         if (!buffer) {
             puts("Empty memory region!");
             continue;
@@ -168,18 +185,25 @@ static void find_pattern(const dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPT
                 }
 
                 const size_t buffer_offset = buffer_ptr - buffer;
-                match[i].push_back((const char*)(info[i]->StartOfMemoryRange + buffer_offset));
+                match[i].push_back((const char*)(info[i].StartOfMemoryRange + buffer_offset));
 
                 buffer_ptr++;
                 buffer_size -= (buffer_ptr - old_buf_ptr);
             }
         }
+        UnmapViewOfFile(file_base);
         {
             std::unique_lock<std::mutex> lk(g_mtx);
             g_memory_usage_bytes -= region_size;
         }
         g_cv.notify_all(); // permitted to be called concurrentely
     }
+
+    if (!remap_file(ctx->file_mapping,  &ctx->file_base)) {
+        return;
+    }
+    gather_modules(ctx);
+    gather_threads(ctx);
 
     size_t num_matches = 0;
     for (const auto& m : match) {
@@ -198,7 +222,7 @@ static void find_pattern(const dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPT
         if (match[i].size()) {
             puts("------------------------------------\n");
             bool found_in_image = false;
-            const MINIDUMP_MEMORY_DESCRIPTOR64& r_info = *(info[i]);
+            const MINIDUMP_MEMORY_DESCRIPTOR64& r_info = info[i];
             for (size_t m = 0, sz = ctx->m_data.size(); m < sz; m++) {
                 const module_data& mdata = ctx->m_data[m];
                 if (((ULONG64)mdata.base_of_image <= r_info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (r_info.StartOfMemoryRange + r_info.DataSize))) {
@@ -226,7 +250,7 @@ static void find_pattern(const dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPT
     }
 }
 
-static void search_pattern_in_dump(const dump_context *ctx) {
+static void search_pattern_in_dump(dump_context *ctx) {
     MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
@@ -434,7 +458,7 @@ static void execute_command(input_command cmd, const dump_context *ctx) {
         print_help();
         break;
     case c_search_pattern :
-        search_pattern_in_dump(ctx);
+        search_pattern_in_dump((dump_context*)ctx);
         break;
     case c_search_pattern_in_registers :
         search_pattern_in_registers(ctx);
@@ -478,7 +502,7 @@ int run_dump_inspection() {
         return -1;
     }
 
-    dump_context ctx = { { nullptr, 0 }, file_base };
+    dump_context ctx = { { nullptr, 0 }, file_base, file_mapping_handle };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
         puts("Only x86-64 architecture supported at the moment. Exiting..");
@@ -509,14 +533,6 @@ int run_dump_inspection() {
             continue;
         }
         execute_command(cmd, &ctx);
-        if (cmd == c_search_pattern) {
-            if (!remap_file(file_mapping_handle, &file_base)) {
-                break;
-            }
-            ctx.file_base = file_base;
-            gather_modules(&ctx);
-            gather_threads(&ctx);
-        }
     }
 
     // epilogue
