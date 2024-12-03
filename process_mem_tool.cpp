@@ -136,7 +136,6 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
                     }
                 }
             }
-            bytes_offset += block_size;
             region_size = new_region_size;
             first_try = true;
 
@@ -152,12 +151,13 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
                     }
 
                     const size_t buffer_offset = buffer_ptr - buffer;
-                    match[i].push_back(p[i] + buffer_offset);
+                    match[i].push_back(p[i] + buffer_offset + bytes_offset);
 
                     buffer_ptr++;
                     buffer_size -= (buffer_ptr - old_buf_ptr);
                 }
             }
+            bytes_offset += block_size;
             {
                 std::unique_lock<std::mutex> lk(g_mtx);
                 g_memory_usage_bytes -= bytes_to_read;

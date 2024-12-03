@@ -156,7 +156,7 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
         uint64_t offset_aligned = offset & ~(alloc_granularity - 1);
         uint64_t reminder = offset - offset_aligned;
         size_t total_bytes_to_map = region_size + reminder;
-        size_t bytes_offset = 0;
+        size_t start_offset = 0;
 
         while (total_bytes_to_map) {
             size_t bytes_to_map;
@@ -167,7 +167,7 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
                 bytes_to_map = total_bytes_to_map;
                 total_bytes_to_map = 0;
             }
-            size_t bytes_to_read = bytes_to_map - reminder;
+            const size_t bytes_to_read = bytes_to_map - reminder;
 
             const DWORD high = (DWORD)((offset_aligned >> 0x20) & 0xFFFFFFFF);
             const DWORD low = (DWORD)(offset_aligned & 0xFFFFFFFF);
@@ -186,6 +186,7 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
 
             HANDLE file_base = MapViewOfFile(ctx->file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
             if (!file_base) {
+                start_offset += block_size;
                 std::unique_lock<std::mutex> lk(g_mtx);
                 g_memory_usage_bytes -= bytes_to_map;
                 perror("Failed to map view of file.\n");
@@ -196,6 +197,7 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
             reminder = 0; // only needed for the first iteration
             
             if (!buffer) {
+                start_offset += block_size;
                 UnmapViewOfFile(file_base);
                 std::unique_lock<std::mutex> lk(g_mtx);
                 g_memory_usage_bytes -= bytes_to_map;
@@ -216,12 +218,13 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
                     }
 
                     const size_t buffer_offset = buffer_ptr - buffer;
-                    match[i].push_back((const char*)(info[i].StartOfMemoryRange + buffer_offset));
+                    match[i].push_back((const char*)(info[i].StartOfMemoryRange + buffer_offset + start_offset));
 
                     buffer_ptr++;
                     buffer_size -= (buffer_ptr - old_buf_ptr);
                 }
             }
+            start_offset += bytes_to_read - extra_chunk;
             UnmapViewOfFile(file_base);
             {
                 std::unique_lock<std::mutex> lk(g_mtx);
