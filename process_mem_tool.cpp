@@ -6,6 +6,12 @@ struct process_context {
     DWORD pid;
 };
 
+static struct block {
+    const char* ptr;
+    size_t size;
+    size_t info_id;
+};
+
 static int list_processes();
 static int list_process_modules(DWORD dw_pid);
 static int list_process_threads(DWORD dw_owner_pid);
@@ -16,7 +22,7 @@ static std::mutex g_err_mtx;
 
 static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len) {
     std::vector<std::vector<const char*>> match;
-    std::vector<const char*> p;
+    std::vector<block> blocks;
     std::vector<MEMORY_BASIC_INFORMATION> info;
     const LONG64 max_memory_usage = g_memory_limit;
 
@@ -29,141 +35,127 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
 
     puts("Searching committed memory...");
     puts("\n------------------------------------\n");
+
+    const size_t extra_chunk = multiple_of_n(pattern_len, sizeof(__m128i));
+    const size_t block_size = alloc_granularity * g_num_alloc_blocks;
+    const size_t bytes_to_read_ideal = block_size + extra_chunk;
+
     {
         const char* _p = NULL;
         MEMORY_BASIC_INFORMATION _info;
         for (_p = NULL; VirtualQueryEx(process, _p, &_info, sizeof(_info)) == sizeof(_info); _p += _info.RegionSize) {
             if (_info.State == MEM_COMMIT) {
+                size_t region_size = _info.RegionSize;
+                if (region_size < pattern_len) {
+                    continue;
+                }
                 info.push_back(_info);
-                p.push_back(_p);
+                size_t bytes_offset = 0;
+                while (region_size) {
+                    size_t bytes_to_read;
+                    if (region_size >= bytes_to_read_ideal) {
+                        bytes_to_read = bytes_to_read_ideal;
+                        region_size -= block_size;
+                    } else {
+                        bytes_to_read = region_size;
+                        region_size = 0;
+                    }
+                    block b = { _p + bytes_offset, bytes_to_read, info.size() - 1 };
+                    blocks.push_back(b);
+                    bytes_offset += block_size;
+                }
             }
         }
     }
-    const size_t num_regions = info.size();
-    match.resize(num_regions);
+    const size_t num_blocks = blocks.size();
+    match.resize(num_blocks);
 
-    const int num_threads = _min(num_regions, _min(g_max_omp_threads, omp_get_num_procs()));
+    const int num_threads = _min(num_blocks, _min(g_max_omp_threads, omp_get_num_procs()));
     std::vector<char*> buffers(num_threads);
-    const size_t extra_chunk = multiple_of_n(pattern_len, sizeof(__m128i));
-    const size_t block_size = alloc_granularity * g_num_alloc_blocks;
-    const size_t bytes_to_read_ideal = block_size + extra_chunk;
     for (char*& b : buffers) {
         b = (char*)malloc(bytes_to_read_ideal);
     }
 
     omp_set_num_threads(num_threads);   
-#pragma omp parallel for schedule(dynamic, 1) shared(match,p,info)
-    for (int64_t i = 0;  i < (int64_t)num_regions; i++) {
+#pragma omp parallel for schedule(dynamic, 1) shared(match,blocks,info)
+    for (int64_t i = 0;  i < (int64_t)num_blocks; i++) {
         const int omp_tid = omp_get_thread_num();
         char* buffer = buffers[omp_tid];
+        const size_t info_id = blocks[i].info_id;
+        const MEMORY_BASIC_INFORMATION& r_info = info[info_id];
+        const char* ptr = blocks[i].ptr;
+        const size_t bytes_to_read = blocks[i].size;
 
-        assert((info[i].Type == MEM_MAPPED || info[i].Type == MEM_PRIVATE || info[i].Type == MEM_IMAGE));
-        size_t region_size = info[i].RegionSize;
-        if (region_size < pattern_len) {
-            continue;
+        assert((r_info.Type == MEM_MAPPED || r_info.Type == MEM_PRIVATE || r_info.Type == MEM_IMAGE));
+
+        {
+            std::unique_lock<std::mutex> lk(g_mtx);
+            while (true) {
+                g_cv.wait(lk, [max_memory_usage] { return (g_memory_usage_bytes < max_memory_usage); });
+                if (g_memory_usage_bytes < max_memory_usage) {
+                    g_memory_usage_bytes += bytes_to_read;
+                    break;
+                }
+            }
         }
-        bool first_try = true;
-        size_t bytes_offset = 0;
 
-        while (region_size) {
-            size_t bytes_to_read;
-            size_t new_region_size;
-            if (region_size >= bytes_to_read_ideal) {
-                bytes_to_read = bytes_to_read_ideal;
-                new_region_size = region_size - block_size;
+        SIZE_T bytes_read;
+        const BOOL res = ReadProcessMemory(process, ptr, buffer, bytes_to_read, &bytes_read);
+
+        if (!res || (bytes_read != bytes_to_read)) {
+            const size_t skip = _min(block_size, bytes_read);
+            if (!g_show_failed_readings) {
+                if (!res) {
+                    std::unique_lock<std::mutex> lk(g_mtx);
+                    g_memory_usage_bytes -= bytes_to_read;
+                    continue;
+                }
             } else {
-                bytes_to_read = region_size;
-                new_region_size = 0;
-            }
-
-            {
-                std::unique_lock<std::mutex> lk(g_mtx);
-                while (true) {
-                    g_cv.wait(lk, [max_memory_usage] { return (g_memory_usage_bytes < max_memory_usage); });
-                    if (g_memory_usage_bytes < max_memory_usage) {
-                        g_memory_usage_bytes += bytes_to_read;
-                        break;
+                std::unique_lock<std::mutex> lk(g_err_mtx);
+                if (r_info.Type == MEM_IMAGE) {
+                    char module_name[MAX_PATH];
+                    if (GetModuleFileNameExA(process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
+                        puts("------------------------------------\n");
+                        printf("Module name: %s\n", module_name);
                     }
                 }
-            }
-
-            SIZE_T bytes_read;
-            const BOOL res = ReadProcessMemory(process, p[i] + bytes_offset, buffer, bytes_to_read, &bytes_read);
-            if (!res || (bytes_read != bytes_to_read)) {
-                const size_t skip = _min(block_size, bytes_read);
-                if (!g_show_failed_readings) {
-                    if (!res || !first_try) {
-                        bytes_offset += block_size;
-                        region_size = new_region_size;
-                        std::unique_lock<std::mutex> lk(g_mtx);
-                        g_memory_usage_bytes -= bytes_to_read;
-                        continue;
-                    } else {
-                        if (new_region_size) {
-                            new_region_size = region_size - skip;
-                        } else {
-                            new_region_size = bytes_to_read - skip;
-                        }
-                        first_try = false;
-                    }
+                printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+                    r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
+                print_page_type(r_info.Type);
+                if (!res) {
+                    fprintf(stderr, "Failed reading process memory. Error code: %lu\n\n", GetLastError());
+                    std::unique_lock<std::mutex> lk(g_mtx);
+                    g_memory_usage_bytes -= bytes_to_read;
+                    continue;
                 } else {
-                    std::unique_lock<std::mutex> lk(g_err_mtx);
-                    if (info[i].Type == MEM_IMAGE) {
-                        char module_name[MAX_PATH];
-                        if (GetModuleFileNameExA(process, (HMODULE)info[i].AllocationBase, module_name, MAX_PATH)) {
-                            puts("------------------------------------\n");
-                            printf("Module name: %s\n", module_name);
-                        }
-                    }
-                    printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
-                        info[i].BaseAddress, info[i].AllocationBase, info[i].RegionSize, get_page_protect(info[i].Protect), get_page_state(info[i].State));
-                    print_page_type(info[i].Type);
-                    if (!res || !first_try) {
-                        fprintf(stderr, "Failed reading process memory. Error code: %lu\n\n", GetLastError());
-                        bytes_offset += block_size;
-                        region_size = new_region_size;
-                        std::unique_lock<std::mutex> lk(g_mtx);
-                        g_memory_usage_bytes -= bytes_to_read;
-                        continue;
-                    } else {
-                        if (new_region_size) {
-                            new_region_size = region_size - skip;
-                        } else {
-                            new_region_size = bytes_to_read - skip;
-                        }
-                        first_try = false;
-                        printf("Process memory not read in it's entirety! 0x%llx bytes skipped out of 0x%llx\n\n", (bytes_to_read - bytes_read), bytes_to_read);
-                    }
+                    printf("Process memory not read in it's entirety! 0x%llx bytes skipped out of 0x%llx\n\n", (bytes_to_read - bytes_read), bytes_to_read);
                 }
             }
-            region_size = new_region_size;
-            first_try = true;
-
-            if (bytes_read >= pattern_len) {
-                const char* buffer_ptr = buffer;
-                size_t buffer_size = bytes_read;
-
-                while (buffer_size >= pattern_len) {
-                    const char* old_buf_ptr = buffer_ptr;
-                    buffer_ptr = (const char*)strstr_u8((const uint8_t*)buffer_ptr, buffer_size, (const uint8_t*)pattern, pattern_len);
-                    if (!buffer_ptr) {
-                        break;
-                    }
-
-                    const size_t buffer_offset = buffer_ptr - buffer;
-                    match[i].push_back(p[i] + buffer_offset + bytes_offset);
-
-                    buffer_ptr++;
-                    buffer_size -= (buffer_ptr - old_buf_ptr);
-                }
-            }
-            bytes_offset += block_size;
-            {
-                std::unique_lock<std::mutex> lk(g_mtx);
-                g_memory_usage_bytes -= bytes_to_read;
-            }
-            g_cv.notify_all(); // permitted to be called concurrentely
         }
+
+        if (bytes_read >= pattern_len) {
+            const char* buffer_ptr = buffer;
+            size_t buffer_size = bytes_read;
+
+            while (buffer_size >= pattern_len) {
+                const char* old_buf_ptr = buffer_ptr;
+                buffer_ptr = (const char*)strstr_u8((const uint8_t*)buffer_ptr, buffer_size, (const uint8_t*)pattern, pattern_len);
+                if (!buffer_ptr) {
+                    break;
+                }
+
+                const size_t buffer_offset = buffer_ptr - buffer;
+                match[i].push_back(ptr + buffer_offset);
+
+                buffer_ptr++;
+                buffer_size -= (buffer_ptr - old_buf_ptr);
+            }
+        }
+        {
+            std::unique_lock<std::mutex> lk(g_mtx);
+            g_memory_usage_bytes -= bytes_to_read;
+        }
+        g_cv.notify_all(); // permitted to be called concurrentely
     }
 
     for (char* b : buffers) {
@@ -182,18 +174,20 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
         return;
     }
     printf("*** Total number of matches: %llu ***\n\n", num_matches);
-    for (size_t i = 0; i < num_regions; i++) {
+    for (size_t i = 0; i < num_blocks; i++) {
         if (match[i].size()) {
-            if (info[i].Type == MEM_IMAGE) {
+            const size_t info_id = blocks[i].info_id;
+            const MEMORY_BASIC_INFORMATION& r_info = info[info_id];
+            if (r_info.Type == MEM_IMAGE) {
                 char module_name[MAX_PATH];
-                if (GetModuleFileNameExA(process, (HMODULE)info[i].AllocationBase, module_name, MAX_PATH)) {
+                if (GetModuleFileNameExA(process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
                     puts("------------------------------------\n");
                     printf("Module name: %s\n", module_name);
                 }
             }
             printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
-                info[i].BaseAddress, info[i].AllocationBase, info[i].RegionSize, get_page_protect(info[i].Protect), get_page_state(info[i].State));
-            print_page_type(info[i].Type);
+                r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
+            print_page_type(r_info.Type);
             puts("");
             for (const char* m : match[i]) {
                 printf("\tMatch at address: 0x%p\n", m);
