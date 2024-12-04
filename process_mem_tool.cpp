@@ -163,8 +163,10 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
     }
 
     size_t num_matches = 0;
+    {
     for (const auto& m : match) {
         num_matches += m.size();
+    }
     }
     if (!num_matches) {
         puts("*** No matches found. ***");
@@ -173,7 +175,10 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
     if (too_many_results(num_matches)) {
         return;
     }
-    printf("*** Total number of matches: %llu ***\n\n", num_matches);
+    printf("*** Approximate number of matches: %llu ***\n\n", num_matches);
+
+    uint64_t prev_match = (uint64_t)(-1); // there could be duplicates because of the blocks' overlap
+
     for (size_t i = 0; i < num_blocks; i++) {
         if (match[i].size()) {
             const size_t info_id = blocks[i].info_id;
@@ -190,6 +195,10 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
             print_page_type(r_info.Type);
             puts("");
             for (const char* m : match[i]) {
+                if (prev_match == (uint64_t)m) {
+                    continue;
+                }
+                prev_match = (uint64_t)m;
                 printf("\tMatch at address: 0x%p\n", m);
             }
             puts("");

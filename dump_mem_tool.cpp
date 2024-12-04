@@ -274,8 +274,10 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
     if (too_many_results(num_matches)) {
         return;
     }
-    printf("*** Total number of matches: %llu ***\n\n", num_matches);
+    printf("*** Approximate number of matches: %llu ***\n\n", num_matches);
     
+    uint64_t prev_match = (uint64_t)(-1); // there could be duplicates because of the blocks' overlap
+
     for (size_t i = 0; i < num_blocks; i++) {
         if (match[i].size()) {
             puts("------------------------------------\n");
@@ -302,6 +304,10 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
             printf("Start of Memory Region: 0x%p | Region Size: 0x%08llx\n\n",
                 r_info.StartOfMemoryRange, r_info.DataSize);
             for (const char* m : match[i]) {
+                if (prev_match == (uint64_t)m) {
+                    continue;
+                }
+                prev_match = (uint64_t)m;
                 printf("\tMatch at address: 0x%p\n", m);
             }
             puts("");
