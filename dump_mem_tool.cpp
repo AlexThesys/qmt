@@ -147,6 +147,7 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
             const uint64_t offset = memory_list->BaseRva + cumulative_offset;
             const SIZE_T region_size = static_cast<SIZE_T>(mem_desc.DataSize);
             if (region_size < pattern_len) {
+                cumulative_offset += mem_desc.DataSize;
                 continue;
             }
             info.push_back(mem_desc);
@@ -161,8 +162,7 @@ static void find_pattern(dump_context *ctx, const MINIDUMP_MEMORY_DESCRIPTOR64* 
                 if (total_bytes_to_map >= bytes_to_read_ideal) {
                     bytes_to_map = bytes_to_read_ideal;
                     total_bytes_to_map -= block_size;
-                }
-                else {
+                } else {
                     bytes_to_map = total_bytes_to_map;
                     total_bytes_to_map = 0;
                 }
