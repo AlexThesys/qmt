@@ -119,10 +119,7 @@ static void find_pattern(search_context *search_ctx) {
 static void search_and_sync(search_context& search_ctx) {
     const process_context& ctx = search_ctx.ctx;
 
-    SYSTEM_INFO sysinfo = { 0 };
-    ::GetSystemInfo(&sysinfo);
-    const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
-    assert(is_pow_2(alloc_granularity));
+    const DWORD alloc_granularity = get_alloc_granularity();
 
     // collect memory regions
     auto& mem_info = search_ctx.mem_info;
@@ -192,22 +189,10 @@ static void search_and_sync(search_context& search_ctx) {
 }
 
 static void print_search_results(search_context& search_ctx) {
-    uint64_t num_matches = search_ctx.common.matches.size();
-
+    const uint64_t num_matches = prepare_matches(search_ctx.common.matches);
     if (!num_matches) {
-        puts("*** No matches found. ***");
         return;
     }
-    if (too_many_results(num_matches)) {
-        return;
-    }
-
-    auto& matches = search_ctx.common.matches;
-    std::sort(matches.begin(), matches.end(), search_match_less);
-    matches.erase(std::unique(matches.begin(), matches.end(), 
-        [](const search_match& a, const search_match& b) { return a.match_address == a.match_address; }), matches.end());
-
-    num_matches = matches.size();
 
     printf("*** Total number of matches: %llu ***\n\n", num_matches);
     uint64_t prev_info_id = (uint64_t)(-1);

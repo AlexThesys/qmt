@@ -414,3 +414,22 @@ input_command parse_command_common(common_context *ctx, search_data_info *data, 
 
     return command;
 }
+
+uint64_t prepare_matches(std::vector<search_match>& matches) {
+    uint64_t num_matches = matches.size();
+
+    if (!num_matches) {
+        puts("*** No matches found. ***");
+        return 0;
+    }
+
+    if (too_many_results(num_matches)) {
+        return 0;
+    }
+
+    std::sort(matches.begin(), matches.end(), search_match_less);
+    matches.erase(std::unique(matches.begin(), matches.end(),
+        [](const search_match& a, const search_match& b) { return a.match_address == a.match_address; }), matches.end());
+
+    return matches.size();
+}

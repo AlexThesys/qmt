@@ -111,6 +111,7 @@ char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);
 void print_help_common();
 input_command parse_command_common(common_context* ctx, search_data_info* data, char* cmd, char* pattern);
+uint64_t prepare_matches(std::vector<search_match>& matches);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))
@@ -134,4 +135,12 @@ inline bool search_match_less(const search_match& a, const search_match& b) {
         return (a.match_address < b.match_address);
     }
     return false;
+}
+
+inline DWORD get_alloc_granularity() {
+    SYSTEM_INFO sysinfo = { 0 };
+    ::GetSystemInfo(&sysinfo);
+    const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
+    assert(is_pow_2(alloc_granularity));
+    return alloc_granularity;
 }
