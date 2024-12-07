@@ -13,11 +13,7 @@ static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that ev
 static const char* program_version = "Version 0.2.5";
 static const char* program_name = "Quick Memory Tools";
 
-std::mutex g_mtx;
-std::condition_variable g_cv;
-LONG64 g_memory_usage_bytes = 0; // accessed from different threads
-int g_max_omp_threads = MAX_OMP_THREADS;
-LONG64 g_memory_limit = MAX_MEMORY_USAGE_IDEAL;
+int g_max_threads = MAX_THREADS;
 LONG64 g_num_alloc_blocks = 1;
 int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
@@ -122,7 +118,7 @@ bool too_many_results(size_t num_lines) {
     return !(ch == 'y' || ch == 'Y');
 }
 
-static void parse_input(char* pattern, search_data *data, input_type in_type) {
+static void parse_input(char* pattern, search_data_info *data, input_type in_type) {
     if ((data->pattern_len + 1) > MAX_PATTERN_LEN) {
         fprintf(stderr, "Pattern exceeded maximum size of %d. Exiting...", MAX_PATTERN_LEN);
         data->type = it_error_type;
@@ -252,8 +248,7 @@ static void print_help() {
     puts("-p || --process\t\t\t\t\t -- launch in process inspection mode");
     puts("-d || --dump\t\t\t\t\t -- launch in dump inspection mode\n");
     puts("-t=<num_threads> || --threads=<num_threads>\t -- limit the number of OMP threads");
-    puts("-m=<GB> || --memlimit=<GB>\t\t\t -- limit the memory usage (in GB)");
-    puts("-b=<N> || --block=<N>\t\t\t\t -- alloc block size == (dwAllocationGranularity * N), N=[1-8]");
+    puts("-b=<N> || --block_info=<N>\t\t\t\t -- alloc block_info size == (dwAllocationGranularity * N), N=[1-8]");
     puts("-f || --show-failed-readings\t\t\t -- show the regions, that failed to be read (process mode only)\n");
 }
 
@@ -271,41 +266,31 @@ bool parse_cmd_args(int argc, const char** argv) {
         } else if ((0 == strcmp(argv[i], cmd_args[2])) || (0 == strcmp(argv[i], cmd_args[3]))) { // display failed reads
             g_show_failed_readings = 1;
             selected_options |= 1 << 2;
-        } else if ((argv[i] == strstr(argv[i], cmd_args[4])) || (argv[i] == strstr(argv[i], cmd_args[5]))) { // OMP threads
+        } else if ((argv[i] == strstr(argv[i], cmd_args[4])) || (argv[i] == strstr(argv[i], cmd_args[5]))) { // threads
             const char* num_t = (argv[i][1] == '-') ? (argv[i] + strlen(cmd_args[5])) : (argv[i] + strlen(cmd_args[4]));
             char* end = NULL;
             size_t arg_len = strlen(num_t);
             DWORD num_threads = strtoul(num_t, &end, is_hex(num_t, arg_len) ? 16 : 10);
             if (num_t != end) {
                 num_threads = _max(1, num_threads);
-                g_max_omp_threads = _min(num_threads, g_max_omp_threads);
+                g_max_threads = _min(num_threads, g_max_threads);
             }
             selected_options |= 1 << 3;
-        } else if ((argv[i] == strstr(argv[i], cmd_args[6])) || (argv[i] == strstr(argv[i], cmd_args[7]))) { // memory limit
-            const char* mlim = (argv[i][1] == '-') ? (argv[i] + strlen(cmd_args[7])) : (argv[i] + strlen(cmd_args[6]));
-            char* end = NULL;
-            size_t arg_len = strlen(mlim);
-            DWORD mem_limit = strtoul(mlim, &end, is_hex(mlim, arg_len) ? 16 : 10);
-            if (mlim != end) {
-                mem_limit = _min(MAX_MEM_LIM_GB, _max(1, mem_limit));
-                g_memory_limit = (size_t)mem_limit << 30;
-            }
-            selected_options |= 1 << 4;
-        } else if ((0 == strcmp(argv[i], cmd_args[8])) || (0 == strcmp(argv[i], cmd_args[9]))) { // version
+        } else if ((0 == strcmp(argv[i], cmd_args[6])) || (0 == strcmp(argv[i], cmd_args[7]))) { // version
             puts("");
             puts(program_name);
             puts(program_version);
             puts("");
-            selected_options |= 1 << 5;
+            selected_options |= 1 << 4;
             return false;
-        } else if ((0 == strcmp(argv[i], cmd_args[10])) || (0 == strcmp(argv[i], cmd_args[11]))) { // process mode
+        } else if ((0 == strcmp(argv[i], cmd_args[8])) || (0 == strcmp(argv[i], cmd_args[9]))) { // process mode
             g_inspection_mode = inspection_mode::im_process;
-            selected_options |= 1 << 6;
-        } else if ((0 == strcmp(argv[i], cmd_args[12])) || (0 == strcmp(argv[i], cmd_args[13]))) { // dump mode
+            selected_options |= 1 << 5;
+        } else if ((0 == strcmp(argv[i], cmd_args[10])) || (0 == strcmp(argv[i], cmd_args[11]))) { // dump mode
             g_inspection_mode = inspection_mode::im_dump;
-            selected_options |= 1 << 7;
-        } else if ((argv[i] == strstr(argv[i], cmd_args[14])) || (argv[i] == strstr(argv[i], cmd_args[15]))) { // num alloc blocks
-            const char* nb = (argv[i][1] == '-') ? (argv[i] + strlen(cmd_args[15])) : (argv[i] + strlen(cmd_args[14]));
+            selected_options |= 1 << 6;
+        } else if ((argv[i] == strstr(argv[i], cmd_args[12])) || (argv[i] == strstr(argv[i], cmd_args[13]))) { // num alloc blocks
+            const char* nb = (argv[i][1] == '-') ? (argv[i] + strlen(cmd_args[13])) : (argv[i] + strlen(cmd_args[12]));
             char* end = NULL;
             size_t arg_len = strlen(nb);
             DWORD nblocks = strtoul(nb, &end, is_hex(nb, arg_len) ? 16 : 10);
@@ -313,10 +298,11 @@ bool parse_cmd_args(int argc, const char** argv) {
                 nblocks = _max(1, _min(MAX_ALLOC_BLOCKS, nblocks));
                 g_num_alloc_blocks = nblocks;
             }
+            selected_options |= 1 << 7;
         }
             // ...
     }
-    constexpr uint32_t incompatible_mask = (1 << 6) | (1 << 7); // both -p and -d
+    constexpr uint32_t incompatible_mask = (1 << 5) | (1 << 6); // both -p and -d
     const bool incompatible_options = ((selected_options & incompatible_mask) == incompatible_mask);
     if ((g_inspection_mode == inspection_mode::im_none) || incompatible_options) {
         print_help();
@@ -365,7 +351,7 @@ void print_help_common() {
     puts("lt\t\t\t - list process threads");
 }
 
-input_command parse_command_common(common_context *ctx, search_data *data, char* cmd, char *pattern) {
+input_command parse_command_common(common_context *ctx, search_data_info *data, char* cmd, char *pattern) {
     input_command command;
     memset(cmd, 0, sizeof(cmd));
     const char *res = gets_s(cmd, MAX_COMMAND_LEN + MAX_ARG_LEN);

@@ -1,6 +1,7 @@
 #include "common.h"
-#include "process_mem_tool.h"
-#include "dump_mem_tool.h"
+
+extern int run_process_inspection();
+extern int run_dump_inspection();
 
 int main(int argc, const char** argv) {
     if (!check_architecture_rt()) {

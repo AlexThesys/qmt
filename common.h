@@ -10,20 +10,22 @@
 #include <tchar.h>
 #include <assert.h>
 #include <emmintrin.h>
-#include <omp.h> // + compiler arg /openmp
 #include <mutex>
 #include <condition_variable>
 #include <vector> // temp
+#include <algorithm>
+
+#include "circular_buffer.h"
 
 #define MAX_BUFFER_SIZE 0x1000
 #define MAX_PATTERN_LEN 0x40
 #define MAX_ARG_LEN MAX_PATTERN_LEN
 #define MAX_COMMAND_LEN 0X10
-#define MAX_OMP_THREADS 0x10
-#define MAX_MEMORY_USAGE_IDEAL 0X100000000
+#define MAX_THREADS 0x10
 #define TOO_MANY_RESULTS 0x400
 #define MAX_MEM_LIM_GB 0x80
 #define MAX_ALLOC_BLOCKS 0x08
+#define SEARCH_DATA_QUEUE_SIZE_POW2 0X04
 
 enum input_type {
     it_hex_string,
@@ -62,12 +64,27 @@ struct common_context {
     size_t pattern_len;
 };
 
-typedef struct search_data {
+typedef struct search_data_info {
     input_type type;
     uint64_t value;
     const char* pattern;
     uint64_t pattern_len;
-} search_data;
+} search_data_info;
+
+struct search_match {
+    uint64_t info_id;
+    const char* match_address;
+};
+
+struct search_context_common {
+    std::condition_variable master_cv;
+    std::condition_variable workers_cv;
+    std::vector<search_match> matches;
+    std::mutex master_mtx;
+    std::mutex workers_mtx;
+    volatile BOOL exit_workers;
+    spinlock matches_lock;
+};
 
 extern const char* page_state[];
 extern const char* page_type[];
@@ -76,11 +93,7 @@ extern const char* page_protect[];
 extern const char* unknown_command;
 extern const char* command_not_implemented;
 
-extern std::mutex g_mtx;
-extern std::condition_variable g_cv;
-extern LONG64 g_memory_usage_bytes;
-extern int g_max_omp_threads;
-extern LONG64 g_memory_limit;
+extern int g_max_threads;
 extern LONG64 g_num_alloc_blocks;
 extern int g_show_failed_readings;
 extern inspection_mode g_inspection_mode;
@@ -97,7 +110,7 @@ const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* subst
 char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);
 void print_help_common();
-input_command parse_command_common(common_context* ctx, search_data* data, char* cmd, char* pattern);
+input_command parse_command_common(common_context* ctx, search_data_info* data, char* cmd, char* pattern);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))
@@ -111,4 +124,14 @@ inline bool is_pow_2(uint64_t x)
 
 inline int multiple_of_n(int64_t val, int64_t n) {
     return ((val - 1) | (n - 1)) + 1;
+}
+
+inline bool search_match_less(const search_match& a, const search_match& b) {
+    if (a.info_id < b.info_id) {
+        return true;
+    }
+    if (a.info_id == b.info_id) {
+        return (a.match_address < b.match_address);
+    }
+    return false;
 }

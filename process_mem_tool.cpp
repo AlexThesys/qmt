@@ -1,15 +1,26 @@
-#include "process_mem_tool.h"
 #include "common.h"
 
-struct process_context {
+static struct process_context {
     common_context common;
     DWORD pid;
 };
 
-static struct block {
+namespace {
+static struct block_info {
     const char* ptr;
     size_t size;
     size_t info_id;
+};
+}
+
+static struct search_context {
+    circular_buffer<block_info, SEARCH_DATA_QUEUE_SIZE_POW2> block_info_queue;
+    std::vector<MEMORY_BASIC_INFORMATION> mem_info;
+    HANDLE process;
+    uint64_t block_size_ideal;
+    process_context ctx;
+    search_context_common common;
+    std::mutex g_err_mtx;
 };
 
 static int list_processes();
@@ -18,100 +29,49 @@ static int list_process_threads(DWORD dw_owner_pid);
 static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy);
 static void print_error(TCHAR const* msg);
 
-static std::mutex g_err_mtx;
+static void find_pattern(search_context *search_ctx) {
+    HANDLE process = search_ctx->process;
+    const char* pattern = search_ctx->ctx.common.pattern;
+    const size_t pattern_len = search_ctx->ctx.common.pattern_len;
+    auto& matches = search_ctx->common.matches;
+    auto& mem_info = search_ctx->mem_info;
 
-static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len) {
-    std::vector<std::vector<const char*>> match;
-    std::vector<block> blocks;
-    std::vector<MEMORY_BASIC_INFORMATION> info;
-    const LONG64 max_memory_usage = g_memory_limit;
+    char* buffer = (char*)malloc(search_ctx->block_size_ideal);
 
-    SYSTEM_INFO sysinfo = { 0 };
-    ::GetSystemInfo(&sysinfo);
-    const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
-    assert(is_pow_2(alloc_granularity));
-
-    g_memory_usage_bytes = 0;
-
-    puts("Searching committed memory...");
-    puts("\n------------------------------------\n");
-
-    const size_t extra_chunk = multiple_of_n(pattern_len, sizeof(__m128i));
-    const size_t block_size = alloc_granularity * g_num_alloc_blocks;
-    const size_t bytes_to_read_ideal = block_size + extra_chunk;
-
-    {
-        const char* _p = NULL;
-        MEMORY_BASIC_INFORMATION _info;
-        for (_p = NULL; VirtualQueryEx(process, _p, &_info, sizeof(_info)) == sizeof(_info); _p += _info.RegionSize) {
-            if (_info.State == MEM_COMMIT) {
-                size_t region_size = _info.RegionSize;
-                if (region_size < pattern_len) {
-                    continue;
-                }
-                info.push_back(_info);
-                size_t bytes_offset = 0;
-                while (region_size) {
-                    size_t bytes_to_read;
-                    if (region_size >= bytes_to_read_ideal) {
-                        bytes_to_read = bytes_to_read_ideal;
-                        region_size -= block_size;
-                    } else {
-                        bytes_to_read = region_size;
-                        region_size = 0;
-                    }
-                    block b = { _p + bytes_offset, bytes_to_read, info.size() - 1 };
-                    blocks.push_back(b);
-                    bytes_offset += block_size;
-                }
+    auto& block_info_queue = search_ctx->block_info_queue;
+    block_info block;
+    while (1) {
+        int exit = false;
+        while (!block_info_queue.try_pop(block)) {
+            if (search_ctx->common.exit_workers) {
+                exit = true;
+                break;
             }
+            std::unique_lock<std::mutex> lock(search_ctx->common.workers_mtx);
+            search_ctx->common.workers_cv.wait(lock);
         }
-    }
-    const size_t num_blocks = blocks.size();
-    match.resize(num_blocks);
+        search_ctx->common.master_cv.notify_one();
+        if (exit && !block_info_queue.try_pop(block)) {
+            break;
+        }
 
-    const int num_threads = _min(num_blocks, _min(g_max_omp_threads, omp_get_num_procs()));
-    std::vector<char*> buffers(num_threads);
-    for (char*& b : buffers) {
-        b = (char*)malloc(bytes_to_read_ideal);
-    }
-
-    omp_set_num_threads(num_threads);   
-#pragma omp parallel for schedule(dynamic, 1) shared(match,blocks,info)
-    for (int64_t i = 0;  i < (int64_t)num_blocks; i++) {
-        const int omp_tid = omp_get_thread_num();
-        char* buffer = buffers[omp_tid];
-        const size_t info_id = blocks[i].info_id;
-        const MEMORY_BASIC_INFORMATION& r_info = info[info_id];
-        const char* ptr = blocks[i].ptr;
-        const size_t bytes_to_read = blocks[i].size;
+        const size_t info_id = block.info_id;
+        const MEMORY_BASIC_INFORMATION& r_info = mem_info[info_id];
+        const char* ptr = block.ptr;
+        const size_t bytes_to_read = block.size;
 
         assert((r_info.Type == MEM_MAPPED || r_info.Type == MEM_PRIVATE || r_info.Type == MEM_IMAGE));
-
-        {
-            std::unique_lock<std::mutex> lk(g_mtx);
-            while (true) {
-                g_cv.wait(lk, [max_memory_usage] { return (g_memory_usage_bytes < max_memory_usage); });
-                if (g_memory_usage_bytes < max_memory_usage) {
-                    g_memory_usage_bytes += bytes_to_read;
-                    break;
-                }
-            }
-        }
 
         SIZE_T bytes_read;
         const BOOL res = ReadProcessMemory(process, ptr, buffer, bytes_to_read, &bytes_read);
 
         if (!res || (bytes_read != bytes_to_read)) {
-            const size_t skip = _min(block_size, bytes_read);
             if (!g_show_failed_readings) {
                 if (!res) {
-                    std::unique_lock<std::mutex> lk(g_mtx);
-                    g_memory_usage_bytes -= bytes_to_read;
                     continue;
                 }
             } else {
-                std::unique_lock<std::mutex> lk(g_err_mtx);
+                std::unique_lock<std::mutex> lk(search_ctx->g_err_mtx);
                 if (r_info.Type == MEM_IMAGE) {
                     char module_name[MAX_PATH];
                     if (GetModuleFileNameExA(process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
@@ -124,8 +84,6 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
                 print_page_type(r_info.Type);
                 if (!res) {
                     fprintf(stderr, "Failed reading process memory. Error code: %lu\n\n", GetLastError());
-                    std::unique_lock<std::mutex> lk(g_mtx);
-                    g_memory_usage_bytes -= bytes_to_read;
                     continue;
                 } else {
                     printf("Process memory not read in it's entirety! 0x%llx bytes skipped out of 0x%llx\n\n", (bytes_to_read - bytes_read), bytes_to_read);
@@ -145,29 +103,97 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
                 }
 
                 const size_t buffer_offset = buffer_ptr - buffer;
-                match[i].push_back(ptr + buffer_offset);
+                search_ctx->common.matches_lock.lock();
+                const char* match = ptr + buffer_offset;
+                matches.push_back(search_match{ block.info_id, match });
+                search_ctx->common.matches_lock.unlock();
 
                 buffer_ptr++;
                 buffer_size -= (buffer_ptr - old_buf_ptr);
             }
         }
-        {
-            std::unique_lock<std::mutex> lk(g_mtx);
-            g_memory_usage_bytes -= bytes_to_read;
+    }
+    free(buffer);
+}
+
+static void search_and_sync(search_context& search_ctx) {
+    const process_context& ctx = search_ctx.ctx;
+
+    SYSTEM_INFO sysinfo = { 0 };
+    ::GetSystemInfo(&sysinfo);
+    const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
+    assert(is_pow_2(alloc_granularity));
+
+    // collect memory regions
+    auto& mem_info = search_ctx.mem_info;
+    const HANDLE process = search_ctx.process;
+    const size_t pattern_len = ctx.common.pattern_len;
+
+    const char* _p = NULL;
+    MEMORY_BASIC_INFORMATION _info;
+    for (_p = NULL; VirtualQueryEx(process, _p, &_info, sizeof(_info)) == sizeof(_info); _p += _info.RegionSize) {
+        if (_info.State == MEM_COMMIT) {
+            size_t region_size = _info.RegionSize;
+            if (region_size < pattern_len) {
+                continue;
+            }
+            mem_info.push_back(_info);
         }
-        g_cv.notify_all(); // permitted to be called concurrentely
+    }
+    
+    const uint64_t num_regions = mem_info.size();
+    if (!num_regions) {
+        return;
     }
 
-    for (char* b : buffers) {
-        free(b);
+    const size_t extra_chunk = multiple_of_n(pattern_len, sizeof(__m128i));
+    const size_t block_size = alloc_granularity * g_num_alloc_blocks;
+    const size_t bytes_to_read_ideal = block_size + extra_chunk;
+    search_ctx.block_size_ideal = bytes_to_read_ideal;
+
+    const size_t num_threads = _min(num_regions, _min(std::thread::hardware_concurrency(), g_max_threads));
+    std::vector<std::thread> workers; workers.reserve(num_threads);
+    for (size_t i = 0; i < num_threads; i++) {
+        workers.push_back(std::thread(find_pattern, &search_ctx));
+    }
+    
+    //produce block_info
+    auto& block_info_queue = search_ctx.block_info_queue;
+    for (size_t i = 0; i < num_regions; i++) {
+        uint64_t region_size = mem_info[i].RegionSize;
+        uint64_t bytes_offset = 0;
+        while (region_size) {
+            while (block_info_queue.is_full()) {
+                std::unique_lock<std::mutex> lock(search_ctx.common.master_mtx);
+                search_ctx.common.master_cv.wait(lock);
+            }
+            size_t bytes_to_read;
+            if (region_size >= bytes_to_read_ideal) {
+                bytes_to_read = bytes_to_read_ideal;
+                region_size -= block_size;
+            } else {
+                bytes_to_read = region_size;
+                region_size = 0;
+            }
+            block_info b = { _p + bytes_offset, bytes_to_read, i };
+            block_info_queue.try_push(b);
+            search_ctx.common.workers_cv.notify_one();
+            bytes_offset += block_size;
+        }
     }
 
-    size_t num_matches = 0;
-    {
-    for (const auto& m : match) {
-        num_matches += m.size();
+    search_ctx.common.exit_workers = 1;
+    search_ctx.common.workers_cv.notify_all();
+    for (auto& w : workers) {
+        if (w.joinable()) {
+            w.join();
+        }
     }
-    }
+}
+
+static void print_search_results(search_context& search_ctx) {
+    uint64_t num_matches = search_ctx.common.matches.size();
+
     if (!num_matches) {
         puts("*** No matches found. ***");
         return;
@@ -175,17 +201,24 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
     if (too_many_results(num_matches)) {
         return;
     }
-    printf("*** Approximate number of matches: %llu ***\n\n", num_matches);
 
-    uint64_t prev_match = (uint64_t)(-1); // there could be duplicates because of the blocks' overlap
+    auto& matches = search_ctx.common.matches;
+    std::sort(matches.begin(), matches.end(), search_match_less);
+    matches.erase(std::unique(matches.begin(), matches.end(), 
+        [](const search_match& a, const search_match& b) { return a.match_address == a.match_address; }), matches.end());
 
-    for (size_t i = 0; i < num_blocks; i++) {
-        if (match[i].size()) {
-            const size_t info_id = blocks[i].info_id;
-            const MEMORY_BASIC_INFORMATION& r_info = info[info_id];
+    num_matches = matches.size();
+
+    printf("*** Total number of matches: %llu ***\n\n", num_matches);
+    uint64_t prev_info_id = (uint64_t)(-1);
+
+    for (size_t i = 0; i < num_matches; i++) {
+        const size_t info_id = search_ctx.common.matches[i].info_id;
+        if (info_id != prev_info_id) {
+            const MEMORY_BASIC_INFORMATION& r_info = search_ctx.mem_info[info_id];
             if (r_info.Type == MEM_IMAGE) {
                 char module_name[MAX_PATH];
-                if (GetModuleFileNameExA(process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
+                if (GetModuleFileNameExA(search_ctx.process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
                     puts("------------------------------------\n");
                     printf("Module name: %s\n", module_name);
                 }
@@ -193,17 +226,39 @@ static void find_pattern(HANDLE process, const char* pattern, size_t pattern_len
             printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
                 r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
             print_page_type(r_info.Type);
-            puts("");
-            for (const char* m : match[i]) {
-                if (prev_match == (uint64_t)m) {
-                    continue;
-                }
-                prev_match = (uint64_t)m;
-                printf("\tMatch at address: 0x%p\n", m);
-            }
-            puts("");
+
+            prev_info_id = info_id;
         }
+        printf("\tMatch at address: 0x%p\n", search_ctx.common.matches[i].match_address);
     }
+    puts("");
+}
+
+static void search_pattern_in_memory(process_context* ctx) {
+    assert(ctx->common.pattern != nullptr);
+    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
+    if (process == NULL) {
+        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+        return;
+    }
+
+    char proc_name[MAX_PATH];
+    if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
+        printf("Process name: %s\n\n", proc_name);
+    }
+
+    puts("Searching committed memory...");
+    puts("\n------------------------------------\n");
+
+    search_context search_ctx;
+    search_ctx.ctx = *ctx;
+    search_ctx.process = process;
+    search_ctx.common.exit_workers = 0;
+
+    search_and_sync(search_ctx);
+    print_search_results(search_ctx);
+
+    CloseHandle(process);
 }
 
 static void print_help() {
@@ -216,7 +271,7 @@ static void print_help() {
     puts("********************************\n");
 }
 
-static input_command parse_command(process_context *ctx, search_data *data, char* cmd, char *pattern) {
+static input_command parse_command(process_context *ctx, search_data_info *data, char* cmd, char *pattern) {
     input_command command;
     if (cmd[0] == 'p') {
         size_t pid_len = strlen(cmd);
@@ -277,24 +332,9 @@ static void execute_command(input_command cmd, process_context *ctx) {
         print_help_common();
         print_help();
         break;
-    case c_search_pattern : {
-        assert(ctx->common.pattern != nullptr);
-        HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
-        if (process == NULL) {
-            fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
-            return;
-        }
-
-        char proc_name[MAX_PATH];
-        if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
-            printf("Process name: %s\n\n", proc_name);
-        }
-
-        find_pattern(process, ctx->common.pattern, ctx->common.pattern_len);
-
-        CloseHandle(process);
+    case c_search_pattern :
+        search_pattern_in_memory(ctx);
         break;
-    }
     case c_search_pattern_in_registers :
         puts(command_not_implemented);
         puts("");
@@ -331,7 +371,7 @@ int run_process_inspection() {
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
 
-    search_data data;
+    search_data_info data;
     process_context ctx = { { nullptr, 0 }, (DWORD)(-1) };
 
     while (1) {
