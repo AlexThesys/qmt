@@ -1,11 +1,10 @@
 #include "common.h"
 
-static struct process_context {
+struct process_context {
     common_context common;
     DWORD pid;
 };
 
-namespace {
 struct block_info_process {
     const char* ptr;
     size_t size;
@@ -21,7 +20,6 @@ struct search_context_process {
     search_context_common common{};
     std::mutex err_mtx;
 };
-}
 
 static int list_processes();
 static int list_process_modules(DWORD dw_pid);
