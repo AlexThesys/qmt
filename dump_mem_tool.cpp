@@ -9,7 +9,7 @@ struct module_data {
     uint64_t size_of_image;
 };
 
-struct thread_data {
+struct thread_info_dump {
     uint32_t tid;
     uint32_t priority_class;
     uint32_t priority;
@@ -29,7 +29,7 @@ struct dump_context {
     HANDLE file_base;
     HANDLE file_mapping;
     std::vector<module_data> m_data;
-    std::vector<thread_data> t_data;
+    std::vector<thread_info_dump> t_data;
     cpu_info_data cpu_info;
 };
 
@@ -321,7 +321,7 @@ static void print_search_results(search_context_dump& search_ctx) {
             }
             if (!found_in_image) {
                 for (size_t t = 0, sz = search_ctx.ctx->t_data.size(); t < sz; t++) {
-                    const thread_data& tdata = search_ctx.ctx->t_data[t];
+                    const thread_info_dump& tdata = search_ctx.ctx->t_data[t];
                     if (((ULONG64)tdata.stack_base >= r_info.StartOfMemoryRange) && (tdata.context->Rsp <= (r_info.StartOfMemoryRange + r_info.DataSize))) {
                         wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tdata.tid);
                         break;
@@ -370,7 +370,7 @@ static void search_pattern_in_registers(const dump_context *ctx) {
     const uint8_t* pattern = (const uint8_t*)ctx->common.pattern;
     size_t pattern_len = ctx->common.pattern_len;
     assert(pattern_len <= sizeof(uint64_t));
-    for (const thread_data &data : ctx->t_data) {
+    for (const thread_info_dump &data : ctx->t_data) {
         if (strstr_u8((const uint8_t*)&data.context->Rax, sizeof(data.context->Rax), pattern, pattern_len)) {
             match.match = data.context->Rax;
             match.tid = data.tid;
@@ -791,7 +791,7 @@ static void list_threads(const dump_context* ctx) {
     printf("*** Number of threads: %llu ***\n\n", num_threads);
 
     for (ULONG i = 0; i < num_threads; i++) {
-        const thread_data& thread = ctx->t_data[i];
+        const thread_info_dump& thread = ctx->t_data[i];
         printf("ThreadID: 0x%04x | Priority Class: 0x%04x | Priority: 0x%04x | Stack Base: 0x%p | RSP: 0x%p\n\n",
             thread.tid, thread.priority_class, thread.priority, (char*)thread.stack_base, (char*)thread.context->Rsp);
     }
@@ -807,7 +807,7 @@ static void list_thread_registers(const dump_context* ctx) {
     printf("*** Number of threads: %llu ***\n\n", num_threads);
 
     for (ULONG i = 0; i < num_threads; i++) {
-        const thread_data& thread = ctx->t_data[i];
+        const thread_info_dump& thread = ctx->t_data[i];
         printf("*** ThreadID: 0x%04x ***\nRAX: 0x%p RBX: 0x%p RCX: 0x%p RDI: 0x%p RSI: 0x%p\n", thread.tid,
             (char*)thread.context->Rax, (char*)thread.context->Rbx, (char*)thread.context->Rcx, (char*)thread.context->Rdx, 
             (char*)thread.context->Rdi, (char*)thread.context->Rsi);

@@ -21,11 +21,20 @@ struct search_context_process {
     std::mutex err_mtx;
 };
 
+struct thread_info_process {
+    DWORD thread_id;
+    LONG base_prio;
+    LONG delta_prio;
+    DWORD_PTR stack_ptr;
+    SIZE_T stack_size;
+};
+
 static int list_processes();
 static int list_process_modules(DWORD dw_pid);
 static int list_process_threads(DWORD dw_owner_pid);
 static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy);
 static void print_error(TCHAR const* msg);
+static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_process>& thread_info);
 
 static void find_pattern(search_context_process* search_ctx) {
     HANDLE process = search_ctx->process;
@@ -198,16 +207,25 @@ static void print_search_results(search_context_process& search_ctx) {
     printf("*** Total number of matches: %llu ***\n", num_matches);
     uint64_t prev_info_id = (uint64_t)(-1);
 
+    std::vector<thread_info_process> thread_info;
+    gather_thread_info(search_ctx.ctx->pid, thread_info);
+
     for (size_t i = 0; i < num_matches; i++) {
         const size_t info_id = search_ctx.common.matches[i].info_id;
         if (info_id != prev_info_id) {
-            puts("");
+            puts("\n------------------------------------\n");
             const MEMORY_BASIC_INFORMATION& r_info = search_ctx.mem_info[info_id];
             if (r_info.Type == MEM_IMAGE) {
                 char module_name[MAX_PATH];
                 if (GetModuleFileNameExA(search_ctx.process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
-                    puts("------------------------------------\n");
                     printf("Module name: %s\n", module_name);
+                }
+            } else {
+                for (const auto& ti : thread_info) {
+                    if (((ULONG64)ti.stack_ptr >= (ULONG64)r_info.BaseAddress) && ((ULONG64)(ti.stack_ptr - ti.stack_size) <= ((ULONG64)r_info.BaseAddress + r_info.RegionSize))) {
+                        wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", ti.thread_id);
+                        break;
+                    }
                 }
             }
             printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
@@ -505,8 +523,8 @@ static int get_thread_stack_base(HANDLE hThread, HANDLE process, stack_info *res
     return stack_base_found;
 }
 
-static int list_process_threads(DWORD dw_owner_pid) {
-    HANDLE hThreadSnap = INVALID_HANDLE_VALUE;
+static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_process>& thread_info) {
+       HANDLE hThreadSnap = INVALID_HANDLE_VALUE;
     THREADENTRY32 te32;
     stack_info si = { NULL, 0 };
 
@@ -536,6 +554,7 @@ static int list_process_threads(DWORD dw_owner_pid) {
     // Now walk the thread list of the system,
     // and display information about each thread
     // associated with the specified process
+
     do {
         if (te32.th32OwnerProcessID == dw_owner_pid) {
             HANDLE hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, te32.th32ThreadID);
@@ -545,13 +564,8 @@ static int list_process_threads(DWORD dw_owner_pid) {
                 }
                 CloseHandle(hThread);
             }
-
-            _tprintf(TEXT("\n\n     THREAD ID         = 0x%08X"), te32.th32ThreadID);
-            _tprintf(TEXT("\n     Base priority     = %d"), te32.tpBasePri);
-            _tprintf(TEXT("\n     Delta priority    = %d"), te32.tpDeltaPri);
-            _tprintf(TEXT("\n     Stack Base        = 0x%p"), si.sp);
-            _tprintf(TEXT("\n     Stack Size        = 0x%llx"), si.size);
-            _tprintf(TEXT("\n"));
+            thread_info_process info = { te32.th32ThreadID, te32.tpBasePri, te32.tpDeltaPri, si.sp, si.size };
+            thread_info.push_back(info);
         }
     } while (Thread32Next(hThreadSnap, &te32));
 
@@ -559,7 +573,25 @@ static int list_process_threads(DWORD dw_owner_pid) {
 
     CloseHandle(process);
     CloseHandle(hThreadSnap);
-    return(TRUE);
+}
+
+static int list_process_threads(DWORD dw_owner_pid) {
+    std::vector<thread_info_process> thread_info;
+
+    if (!gather_thread_info(dw_owner_pid, thread_info)) {
+        return false;
+    }
+
+    for (auto& ti : thread_info) {
+        _tprintf(TEXT("\n\n     THREAD ID         = 0x%08X"), ti.thread_id);
+        _tprintf(TEXT("\n     Base priority     = %d"), ti.base_prio);
+        _tprintf(TEXT("\n     Delta priority    = %d"), ti.delta_prio);
+        _tprintf(TEXT("\n     Stack Base        = 0x%p"), ti.stack_ptr);
+        _tprintf(TEXT("\n     Stack Size        = 0x%llx"), ti.stack_size);
+        _tprintf(TEXT("\n"));
+    }
+
+    return true;
 }
 
 #define NUM_VALUES 0x100
