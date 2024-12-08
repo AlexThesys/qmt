@@ -126,18 +126,21 @@ static void search_and_sync(search_context& search_ctx) {
     const HANDLE process = search_ctx.process;
     const size_t pattern_len = ctx.common.pattern_len;
 
-    const char* _p = NULL;
-    MEMORY_BASIC_INFORMATION _info;
-    for (_p = NULL; VirtualQueryEx(process, _p, &_info, sizeof(_info)) == sizeof(_info); _p += _info.RegionSize) {
-        if (_info.State == MEM_COMMIT) {
-            size_t region_size = _info.RegionSize;
-            if (region_size < pattern_len) {
-                continue;
+    std::vector<const char*> blocks;
+    {
+        const char* p = NULL;
+        MEMORY_BASIC_INFORMATION info;
+        for (p = NULL; VirtualQueryEx(process, p, &info, sizeof(info)) == sizeof(info); p += info.RegionSize) {
+            if (info.State == MEM_COMMIT) {
+                size_t region_size = info.RegionSize;
+                if (region_size < pattern_len) {
+                    continue;
+                }
+                mem_info.push_back(info);
+                blocks.push_back(p);
             }
-            mem_info.push_back(_info);
         }
     }
-    
     const uint64_t num_regions = mem_info.size();
     if (!num_regions) {
         return;
@@ -158,6 +161,7 @@ static void search_and_sync(search_context& search_ctx) {
     auto& block_info_queue = search_ctx.block_info_queue;
     for (size_t i = 0; i < num_regions; i++) {
         uint64_t region_size = mem_info[i].RegionSize;
+        const char* p = blocks[i];
         uint64_t bytes_offset = 0;
         while (region_size) {
             while (block_info_queue.is_full()) {
@@ -172,7 +176,7 @@ static void search_and_sync(search_context& search_ctx) {
                 bytes_to_read = region_size;
                 region_size = 0;
             }
-            block_info b = { _p + bytes_offset, bytes_to_read, i };
+            block_info b = { p + bytes_offset, bytes_to_read, i };
             block_info_queue.try_push(b);
             search_ctx.common.workers_cv.notify_one();
             bytes_offset += block_size;

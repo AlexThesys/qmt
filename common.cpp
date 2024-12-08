@@ -7,7 +7,7 @@ const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUT
 
 const char* unknown_command = "Unknown command.";
 const char* command_not_implemented = "Command not implemented.";
-static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-m=", "--memlimit=", "-v", "--version",
+static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=" };
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
 static const char* program_version = "Version 0.2.5";
