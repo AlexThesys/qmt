@@ -14,7 +14,7 @@ static const char* program_version = "Version 0.2.5";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = MAX_THREADS;
-LONG64 g_num_alloc_blocks = 1;
+LONG64 g_num_alloc_blocks = DEFAULT_ALLOC_BLOCKS;
 int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
 
