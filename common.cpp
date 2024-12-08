@@ -119,7 +119,7 @@ bool too_many_results(size_t num_lines) {
 }
 
 static void parse_input(char* pattern, search_data_info *data, input_type in_type) {
-    if ((data->pattern_len + 1) > MAX_PATTERN_LEN) {
+    if ((data->pdata.pattern_len + 1) > MAX_PATTERN_LEN) {
         fprintf(stderr, "Pattern exceeded maximum size of %d. Exiting...", MAX_PATTERN_LEN);
         data->type = it_error_type;
         return;
@@ -127,7 +127,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
 
     switch (in_type) {
     case input_type::it_hex_string : {
-        size_t pattern_len = data->pattern_len;
+        size_t pattern_len = data->pdata.pattern_len;
         if (pattern_len <= 1) {
             puts("Hex string is shorter than 1 byte.");
             data->type = it_error_type;
@@ -154,8 +154,8 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         pattern[pattern_len] = 0;
 
         data->type = it_hex_string;
-        data->pattern = pattern;
-        data->pattern_len = pattern_len;
+        data->pdata.pattern = pattern;
+        data->pdata.pattern_len = pattern_len;
 
         puts("\nSearching for a hex string...");
         break;
@@ -171,19 +171,19 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         }
         data->type = it_hex_value;
         data->value = value;
-        data->pattern = (const char*)&data->value;
+        data->pdata.pattern = (const char*)&data->value;
         size_t extra_char = 0;
         if (*end == 'h' || *end == 'H') {
-            data->pattern_len = size_t(end - pattern);
+            data->pdata.pattern_len = size_t(end - pattern);
         } else if (pattern[0] == '0' && (pattern[1] == 'x' || pattern[1] == 'X')) {
-            data->pattern_len = size_t(end - pattern);
-            data->pattern_len -= 2;
+            data->pdata.pattern_len = size_t(end - pattern);
+            data->pdata.pattern_len -= 2;
         } else {
-            data->pattern_len = size_t(end - pattern);
+            data->pdata.pattern_len = size_t(end - pattern);
         }
-        extra_char = data->pattern_len & 0x01;
-        data->pattern_len = (data->pattern_len + extra_char) / 2;
-        if (data->pattern_len <= sizeof(uint64_t)) {
+        extra_char = data->pdata.pattern_len & 0x01;
+        data->pdata.pattern_len = (data->pdata.pattern_len + extra_char) / 2;
+        if (data->pdata.pattern_len <= sizeof(uint64_t)) {
             puts("\nSearching for a hex value...");
         } else {
             printf("Max supported hex value size: %d bytes!", (int)sizeof(uint64_t));
@@ -193,8 +193,8 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
     }
     case input_type::it_ascii_string : 
         data->type = it_ascii_string;
-        data->pattern = pattern;
-        pattern[data->pattern_len] = 0;
+        data->pdata.pattern = pattern;
+        pattern[data->pdata.pattern_len] = 0;
         puts("\nSearching for an ascii string...");
         break;
     default : 
@@ -353,7 +353,7 @@ void print_help_common() {
     puts("lt\t\t\t - list process threads");
 }
 
-input_command parse_command_common(common_context *ctx, search_data_info *data, char* cmd, char *pattern) {
+input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char* cmd, char *pattern) {
     input_command command;
     memset(cmd, 0, sizeof(cmd));
     const char *res = gets_s(cmd, MAX_COMMAND_LEN + MAX_ARG_LEN);
@@ -389,15 +389,15 @@ input_command parse_command_common(common_context *ctx, search_data_info *data, 
         }
         pattern_len -= (ptrdiff_t)(args - cmd);
         memcpy(pattern, args, pattern_len);
-        data->pattern_len = pattern_len;
+        data->pdata.pattern_len = pattern_len;
 
         parse_input(pattern, data, in_type);
         if (data->type == it_error_type) {
             puts("Error parsing the pattern. Does it match the command?");
             command = c_continue;
         } else {
-            ctx->pattern = data->pattern;
-            ctx->pattern_len = data->pattern_len;
+            ctx->pdata.pattern = data->pdata.pattern;
+            ctx->pdata.pattern_len = data->pdata.pattern_len;
             command = c_search_pattern;
             if ((cmd[1] == 'x')) {
                 if (cmd[2] == ' ') {

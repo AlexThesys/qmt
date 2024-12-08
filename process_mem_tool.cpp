@@ -1,27 +1,27 @@
 #include "common.h"
 
-struct process_context {
-    common_context common;
+struct proc_processing_context {
+    common_processing_context common;
     DWORD pid;
 };
 
-struct block_info_process {
+struct block_info_proc {
     const char* ptr;
     size_t size;
     size_t info_id;
 };
 
-struct search_context_process {
-    circular_buffer<block_info_process, SEARCH_DATA_QUEUE_SIZE_POW2> block_info_queue;
+struct search_context_proc {
+    circular_buffer<block_info_proc, SEARCH_DATA_QUEUE_SIZE_POW2> block_info_queue;
     std::vector<MEMORY_BASIC_INFORMATION> mem_info;
     HANDLE process = NULL;
     uint64_t block_size_ideal = 0;
-    process_context *ctx = nullptr;
+    proc_processing_context *ctx = nullptr;
     search_context_common common{};
     std::mutex err_mtx;
 };
 
-struct thread_info_process {
+struct thread_info_proc {
     DWORD thread_id;
     LONG base_prio;
     LONG delta_prio;
@@ -34,20 +34,20 @@ static int list_process_modules(DWORD dw_pid);
 static int list_process_threads(DWORD dw_owner_pid);
 static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy);
 static void print_error(TCHAR const* msg);
-static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_process>& thread_info);
-static void list_memory_regions_info(const process_context* ctx, bool show_commited);
+static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info);
+static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
 
-static void find_pattern(search_context_process* search_ctx) {
+static void find_pattern(search_context_proc* search_ctx) {
     HANDLE process = search_ctx->process;
-    const char* pattern = search_ctx->ctx->common.pattern;
-    const size_t pattern_len = search_ctx->ctx->common.pattern_len;
+    const char* pattern = search_ctx->ctx->common.pdata.pattern;
+    const size_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
     auto& matches = search_ctx->common.matches;
     auto& mem_info = search_ctx->mem_info;
     auto& block_info_queue = search_ctx->block_info_queue;
     auto& exit_workers = search_ctx->common.exit_workers;
 
     char* buffer = (char*)malloc(search_ctx->block_size_ideal);
-    block_info_process block;
+    block_info_proc block;
     while (1) {
         int exit = false;
         while (!block_info_queue.try_pop(block)) {
@@ -123,15 +123,15 @@ static void find_pattern(search_context_process* search_ctx) {
     free(buffer);
 }
 
-static void search_and_sync(search_context_process& search_ctx) {
-    const process_context& ctx = *search_ctx.ctx;
+static void search_and_sync(search_context_proc& search_ctx) {
+    const proc_processing_context& ctx = *search_ctx.ctx;
 
     const DWORD alloc_granularity = get_alloc_granularity();
 
     // collect memory regions
     auto& mem_info = search_ctx.mem_info;
     const HANDLE process = search_ctx.process;
-    const size_t pattern_len = ctx.common.pattern_len;
+    const size_t pattern_len = ctx.common.pdata.pattern_len;
 
     std::vector<const char*> blocks;
     {
@@ -183,7 +183,7 @@ static void search_and_sync(search_context_process& search_ctx) {
                 bytes_to_read = region_size;
                 region_size = 0;
             }
-            block_info_process b = { p + bytes_offset, bytes_to_read, i };
+            block_info_proc b = { p + bytes_offset, bytes_to_read, i };
             block_info_queue.try_push(b);
             search_ctx.common.workers_sem.signal();
             bytes_offset += block_size;
@@ -199,7 +199,7 @@ static void search_and_sync(search_context_process& search_ctx) {
     }
 }
 
-static void print_search_results(search_context_process& search_ctx) {
+static void print_search_results(search_context_proc& search_ctx) {
     const uint64_t num_matches = prepare_matches(search_ctx.common.matches);
     if (!num_matches) {
         return;
@@ -208,7 +208,7 @@ static void print_search_results(search_context_process& search_ctx) {
     printf("*** Total number of matches: %llu ***\n", num_matches);
     uint64_t prev_info_id = (uint64_t)(-1);
 
-    std::vector<thread_info_process> thread_info;
+    std::vector<thread_info_proc> thread_info;
     gather_thread_info(search_ctx.ctx->pid, thread_info);
 
     for (size_t i = 0; i < num_matches; i++) {
@@ -240,7 +240,7 @@ static void print_search_results(search_context_process& search_ctx) {
     puts("");
 }
 
-static void search_pattern_in_memory(process_context* ctx) {
+static void search_pattern_in_memory(proc_processing_context* ctx) {
     assert(ctx->common.pattern != nullptr);
     HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
     if (process == NULL) {
@@ -256,7 +256,7 @@ static void search_pattern_in_memory(process_context* ctx) {
     puts("Searching committed memory...");
     puts("\n------------------------------------\n");
 
-    search_context_process search_ctx{};
+    search_context_proc search_ctx{};
     search_ctx.ctx = ctx;
     search_ctx.process = process;
     search_ctx.common.exit_workers = 0;
@@ -279,7 +279,7 @@ static void print_help() {
     puts("********************************\n");
 }
 
-static input_command parse_command(process_context *ctx, search_data_info *data, char* cmd, char *pattern) {
+static input_command parse_command(proc_processing_context *ctx, search_data_info *data, char* cmd, char *pattern) {
     input_command command;
     if (cmd[0] == 'p') {
         size_t pid_len = strlen(cmd);
@@ -343,7 +343,7 @@ static input_command parse_command(process_context *ctx, search_data_info *data,
     return command;
 }
 
-static void execute_command(input_command cmd, process_context *ctx) {
+static void execute_command(input_command cmd, proc_processing_context *ctx) {
     if ((cmd != c_help) && ((cmd != c_list_pids)) && (ctx->pid == (DWORD)(-1))) {
         puts("Select the PID first!");
         return;
@@ -401,7 +401,7 @@ int run_process_inspection() {
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
 
     search_data_info data;
-    process_context ctx = { { nullptr, 0 }, (DWORD)(-1) };
+    proc_processing_context ctx = { { pattern_data{ nullptr, 0 } }, (DWORD)(-1) };
 
     while (1) {
         printf(">: ");
@@ -548,7 +548,7 @@ static int get_thread_stack_base(HANDLE hThread, HANDLE process, stack_info *res
     return stack_base_found;
 }
 
-static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_process>& thread_info) {
+static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info) {
        HANDLE hThreadSnap = INVALID_HANDLE_VALUE;
     THREADENTRY32 te32;
     stack_info si = { NULL, 0 };
@@ -588,7 +588,7 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proce
                 }
                 CloseHandle(hThread);
             }
-            thread_info_process info = { te32.th32ThreadID, te32.tpBasePri, te32.tpDeltaPri, si.sp, si.size };
+            thread_info_proc info = { te32.th32ThreadID, te32.tpBasePri, te32.tpDeltaPri, si.sp, si.size };
             thread_info.push_back(info);
         }
     } while (Thread32Next(hThreadSnap, &te32));
@@ -598,7 +598,7 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proce
 }
 
 static int list_process_threads(DWORD dw_owner_pid) {
-    std::vector<thread_info_process> thread_info;
+    std::vector<thread_info_proc> thread_info;
 
     if (!gather_thread_info(dw_owner_pid, thread_info)) {
         return false;
@@ -752,7 +752,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
     return 0;
 }
 
-static void list_memory_regions_info(const process_context* ctx, bool show_commited) {
+static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited) {
     HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
     if (process == NULL) {
         fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());

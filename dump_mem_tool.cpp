@@ -24,8 +24,8 @@ struct cpu_info_data {
     // ...
 };
 
-struct dump_context {
-    common_context common;
+struct dump_processing_context {
+    common_processing_context common;
     HANDLE file_base;
     HANDLE file_mapping;
     std::vector<module_data> m_data;
@@ -56,19 +56,19 @@ struct search_context_dump {
     std::vector<MINIDUMP_MEMORY_DESCRIPTOR64> mem_info;
     const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors = nullptr; 
     const MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
-    dump_context *ctx = nullptr;
+    dump_processing_context *ctx = nullptr;
     search_context_common common{};
 };
 
-static void get_system_info(dump_context* ctx);
-static void gather_modules(dump_context* ctx);
-static void gather_threads(dump_context* ctx);
-static bool list_memory64_regions(const dump_context* ctx);
-static bool list_memory_regions(const dump_context* ctx);
-static void list_modules(const dump_context* ctx);
-static void list_threads(const dump_context* ctx);
-static void list_thread_registers(const dump_context* ctx);
-static void list_memory_regions_info(const dump_context* ctx, bool show_commited);
+static void get_system_info(dump_processing_context* ctx);
+static void gather_modules(dump_processing_context* ctx);
+static void gather_threads(dump_processing_context* ctx);
+static bool list_memory64_regions(const dump_processing_context* ctx);
+static bool list_memory_regions(const dump_processing_context* ctx);
+static void list_modules(const dump_processing_context* ctx);
+static void list_threads(const dump_processing_context* ctx);
+static void list_thread_registers(const dump_processing_context* ctx);
+static void list_memory_regions_info(const dump_processing_context* ctx, bool show_commited);
 
 static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* file_mapping_handle, LPVOID* file_base) {
     *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -125,8 +125,8 @@ static bool remap_file(HANDLE file_mapping_handle, LPVOID* file_base) {
 }
 
 static void find_pattern(search_context_dump* search_ctx) {
-    const char* pattern = search_ctx->ctx->common.pattern;
-    const size_t pattern_len = search_ctx->ctx->common.pattern_len;
+    const char* pattern = search_ctx->ctx->common.pdata.pattern;
+    const size_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
     auto& matches = search_ctx->common.matches;
     auto& mem_info = search_ctx->mem_info;
     auto& block_info_queue = search_ctx->block_info_queue;
@@ -195,13 +195,13 @@ static void find_pattern(search_context_dump* search_ctx) {
 }
 
 static void search_and_sync(search_context_dump& search_ctx) {
-    dump_context& ctx = *search_ctx.ctx;
+    dump_processing_context& ctx = *search_ctx.ctx;
 
     const DWORD alloc_granularity = get_alloc_granularity();
 
     auto& mem_info = search_ctx.mem_info;
-    const char* pattern = ctx.common.pattern;
-    const size_t pattern_len = ctx.common.pattern_len;
+    const char* pattern = ctx.common.pdata.pattern;
+    const size_t pattern_len = ctx.common.pdata.pattern_len;
 
     // collect memory regions
     size_t num_regions = search_ctx.memory_list->NumberOfMemoryRanges;
@@ -338,7 +338,7 @@ static void print_search_results(search_context_dump& search_ctx) {
     puts("");
 }
 
-static void search_pattern_in_memory(dump_context *ctx) {
+static void search_pattern_in_memory(dump_processing_context *ctx) {
     MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
@@ -362,13 +362,13 @@ static void search_pattern_in_memory(dump_context *ctx) {
 
 }
 
-static void search_pattern_in_registers(const dump_context *ctx) {
+static void search_pattern_in_registers(const dump_processing_context *ctx) {
     std::vector<reg_search_result> matches;
     reg_search_result match;
     match.reg_name[0] = 'R';
     match.reg_name[3] = 0;
-    const uint8_t* pattern = (const uint8_t*)ctx->common.pattern;
-    size_t pattern_len = ctx->common.pattern_len;
+    const uint8_t* pattern = (const uint8_t*)ctx->common.pdata.pattern;
+    size_t pattern_len = ctx->common.pdata.pattern_len;
     assert(pattern_len <= sizeof(uint64_t));
     for (const thread_info_dump &data : ctx->t_data) {
         if (strstr_u8((const uint8_t*)&data.context->Rax, sizeof(data.context->Rax), pattern, pattern_len)) {
@@ -507,7 +507,7 @@ static void print_help() {
     puts("********************************\n");
 }
 
-static input_command parse_command(dump_context *ctx, search_data_info *data, char* cmd, char *pattern) {
+static input_command parse_command(dump_processing_context *ctx, search_data_info *data, char* cmd, char *pattern) {
     input_command command;
     if (cmd[0] == 'l') {
         if (cmd[1] == 'M') {
@@ -550,14 +550,14 @@ static input_command parse_command(dump_context *ctx, search_data_info *data, ch
     return command;
 }
 
-static void execute_command(input_command cmd, const dump_context *ctx) {
+static void execute_command(input_command cmd, const dump_processing_context *ctx) {
     switch (cmd) {
     case c_help :
         print_help_common();
         print_help();
         break;
     case c_search_pattern :
-        search_pattern_in_memory((dump_context*)ctx);
+        search_pattern_in_memory((dump_processing_context*)ctx);
         break;
     case c_search_pattern_in_registers :
         search_pattern_in_registers(ctx);
@@ -600,7 +600,7 @@ int run_dump_inspection() {
         return -1;
     }
 
-    dump_context ctx = { { nullptr, 0 }, file_base, file_mapping_handle };
+    dump_processing_context ctx = { { pattern_data{ nullptr, 0 } }, file_base, file_mapping_handle };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
         puts("\nOnly x86-64 architecture supported at the moment. Exiting..");
@@ -641,7 +641,7 @@ int run_dump_inspection() {
     return 0;
 }
 
-static void get_system_info(dump_context* ctx) {
+static void get_system_info(dump_processing_context* ctx) {
     MINIDUMP_SYSTEM_INFO* system_info = nullptr;
     ULONG stream_size = 0;
     ctx->cpu_info.processor_architecture = PROCESSOR_ARCHITECTURE_UNKNOWN;
@@ -651,7 +651,7 @@ static void get_system_info(dump_context* ctx) {
     ctx->cpu_info.processor_architecture = system_info->ProcessorArchitecture;
 }
 
-static void gather_modules(dump_context *ctx) {
+static void gather_modules(dump_processing_context *ctx) {
     // Retrieve the Memory64ListStream
     MINIDUMP_MODULE_LIST* module_list = nullptr;
     ULONG stream_size = 0;
@@ -670,7 +670,7 @@ static void gather_modules(dump_context *ctx) {
     }
 }
 
-static void gather_threads(dump_context *ctx) {
+static void gather_threads(dump_processing_context *ctx) {
     MINIDUMP_THREAD_LIST* thread_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, ThreadListStream, nullptr, reinterpret_cast<void**>(&thread_list), &stream_size)) {
@@ -689,7 +689,7 @@ static void gather_threads(dump_context *ctx) {
     }
 }
 
-static bool list_memory64_regions(const dump_context* ctx) {
+static bool list_memory64_regions(const dump_processing_context* ctx) {
 
     MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
@@ -727,7 +727,7 @@ static bool list_memory64_regions(const dump_context* ctx) {
     return true;
 }
 
-static bool list_memory_regions(const dump_context* ctx) {
+static bool list_memory_regions(const dump_processing_context* ctx) {
 
     MINIDUMP_MEMORY_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
@@ -765,7 +765,7 @@ static bool list_memory_regions(const dump_context* ctx) {
     return true;
 }
 
-static void list_modules(const dump_context* ctx) {
+static void list_modules(const dump_processing_context* ctx) {
     const ULONG64 num_modules = ctx->m_data.size();
     if (too_many_results(num_modules)) {
         return;
@@ -780,7 +780,7 @@ static void list_modules(const dump_context* ctx) {
     }
 }
 
-static void list_threads(const dump_context* ctx) {
+static void list_threads(const dump_processing_context* ctx) {
     const ULONG64 num_threads = ctx->t_data.size();
 
     if (too_many_results(num_threads)) {
@@ -796,7 +796,7 @@ static void list_threads(const dump_context* ctx) {
     }
 }
 
-static void list_thread_registers(const dump_context* ctx) {
+static void list_thread_registers(const dump_processing_context* ctx) {
     const ULONG64 num_threads = ctx->t_data.size();
 
     if (too_many_results(num_threads)) {
@@ -821,7 +821,7 @@ static void list_thread_registers(const dump_context* ctx) {
     }
 }
 
-static void list_memory_regions_info(const dump_context* ctx, bool show_commited) {
+static void list_memory_regions_info(const dump_processing_context* ctx, bool show_commited) {
     MINIDUMP_MEMORY_INFO_LIST* memory_info_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, MemoryInfoListStream, nullptr, reinterpret_cast<void**>(&memory_info_list), &stream_size)) {

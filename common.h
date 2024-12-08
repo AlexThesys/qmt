@@ -60,17 +60,20 @@ enum inspection_mode {
     im_none
 };
 
-struct common_context {
-    const char* pattern;
-    size_t pattern_len;
-};
-
-typedef struct search_data_info {
-    input_type type;
-    uint64_t value;
+struct pattern_data {
     const char* pattern;
     uint64_t pattern_len;
-} search_data_info;
+};
+
+struct common_processing_context {
+    pattern_data pdata;
+};
+
+struct search_data_info {
+    input_type type;
+    uint64_t value;
+    pattern_data pdata;
+};
 
 struct search_match {
     uint64_t info_id;
@@ -109,7 +112,7 @@ const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* subst
 char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);
 void print_help_common();
-input_command parse_command_common(common_context* ctx, search_data_info* data, char* cmd, char* pattern);
+input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* cmd, char* pattern);
 uint64_t prepare_matches(std::vector<search_match>& matches);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
