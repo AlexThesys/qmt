@@ -35,6 +35,7 @@ static int list_process_threads(DWORD dw_owner_pid);
 static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy);
 static void print_error(TCHAR const* msg);
 static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_process>& thread_info);
+static void list_memory_regions_info(const process_context* ctx, bool show_commited);
 
 static void find_pattern(search_context_process* search_ctx) {
     HANDLE process = search_ctx->process;
@@ -270,6 +271,8 @@ static void print_help() {
     puts("--------------------------------");
     puts("p <pid>\t\t\t - select PID");
     puts("lp\t\t\t - list system PIDs");
+    puts("lmi\t\t\t - list memory regions info");
+    puts("lmic\t\t\t - list committed memory regions info");
     puts("th\t\t\t - travers process heaps (slow)");
     puts("the\t\t\t - travers process heaps, calculate entropy (slower)");
     puts("thb\t\t\t - travers process heaps, list heap blocks (extra slow)");
@@ -302,6 +305,20 @@ static input_command parse_command(process_context *ctx, search_data_info *data,
             command = c_list_modules;
         } else if (cmd[1] == 't') {
             command = c_list_threads;
+        } else if (cmd[1] == 'm') {
+            if (cmd[2] == 'i') {
+                if (cmd[3] == 0) {
+                    command = c_list_memory_regions_info;
+                } else if (cmd[3] == 'c') {
+                    command = c_list_memory_regions_info_committed;
+                } else {
+                    puts(unknown_command);
+                    command = c_continue;
+                }
+            } else {
+                puts(unknown_command);
+                command = c_continue;
+            }
         } else {
             puts(unknown_command);
             command = c_continue;
@@ -353,6 +370,12 @@ static void execute_command(input_command cmd, process_context *ctx) {
     case c_list_threads:
         list_process_threads(ctx->pid);
         break;
+    case c_list_memory_regions_info:
+        list_memory_regions_info(ctx, false);
+        break;
+    case c_list_memory_regions_info_committed:
+        list_memory_regions_info(ctx, true);
+        break;
     case c_travers_heap:
         traverse_heap_list(ctx->pid, false, false);
         break;
@@ -370,6 +393,7 @@ static void execute_command(input_command cmd, process_context *ctx) {
 }
 
 int run_process_inspection() {
+    puts("");
     print_help_common();
     print_help();
 
@@ -449,7 +473,7 @@ static int list_processes() {
             _tprintf(TEXT("\n  Priority class    = %d"), dwPriorityClass);
 
     } while (Process32Next(hProcessSnap, &pe32));
-
+    _tprintf(TEXT("\n\n================="));
     CloseHandle(hProcessSnap);
     return(TRUE);
 }
@@ -478,6 +502,7 @@ static int list_process_modules(DWORD dw_pid) {
 
     // Now walk the module list of the process,
     // and display information about each module
+    printf("====================================");
     do {
         _tprintf(TEXT("\n\n     MODULE NAME:     %s"), me32.szModule);
         _tprintf(TEXT("\n     Executable     = %s"), me32.szExePath);
@@ -554,7 +579,6 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proce
     // Now walk the thread list of the system,
     // and display information about each thread
     // associated with the specified process
-
     do {
         if (te32.th32OwnerProcessID == dw_owner_pid) {
             HANDLE hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, te32.th32ThreadID);
@@ -569,8 +593,6 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proce
         }
     } while (Thread32Next(hThreadSnap, &te32));
 
-    puts("");
-
     CloseHandle(process);
     CloseHandle(hThreadSnap);
 }
@@ -582,6 +604,7 @@ static int list_process_threads(DWORD dw_owner_pid) {
         return false;
     }
 
+    printf("====================================");
     for (auto& ti : thread_info) {
         _tprintf(TEXT("\n\n     THREAD ID         = 0x%08X"), ti.thread_id);
         _tprintf(TEXT("\n     Base priority     = %d"), ti.base_prio);
@@ -590,6 +613,7 @@ static int list_process_threads(DWORD dw_owner_pid) {
         _tprintf(TEXT("\n     Stack Size        = 0x%llx"), ti.stack_size);
         _tprintf(TEXT("\n"));
     }
+    puts("");
 
     return true;
 }
@@ -646,6 +670,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
                 calculate_entropy = 0;
             }
         }
+        puts("====================================");
         entropy_context e_ctx;
         size_t total_size_blocks = 0;
         do {
@@ -725,6 +750,44 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
     CloseHandle(hHeapSnap);
 
     return 0;
+}
+
+static void list_memory_regions_info(const process_context* ctx, bool show_commited) {
+    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
+    if (process == NULL) {
+        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+        return;
+    }
+
+    const char* p = NULL;
+    MEMORY_BASIC_INFORMATION r_info;
+    uint64_t num_regions = 0;
+    uint64_t check_num_results = true;
+    puts("====================================\n");
+    for (p = NULL; VirtualQueryEx(process, p, &r_info, sizeof(r_info)) == sizeof(r_info); p += r_info.RegionSize) {
+        if (show_commited && (r_info.State != MEM_COMMIT)) {
+            continue;
+        }
+        if (check_num_results && (num_regions >= TOO_MANY_RESULTS)) {
+            if (too_many_results(num_regions)) {
+                return;
+            }
+            check_num_results = false;
+        }
+        num_regions++;
+        if (r_info.Type == MEM_IMAGE) {
+            char module_name[MAX_PATH];
+            if (GetModuleFileNameExA(process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
+                printf("Module name: %s\n", module_name);
+            }
+        }
+        printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+            r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
+        print_page_type(r_info.Type);
+        puts("");
+    }
+    puts("");
+    printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions);
 }
 
 static void print_error(TCHAR const* msg) {

@@ -111,7 +111,7 @@ bool too_many_results(size_t num_lines) {
     if (num_lines < TOO_MANY_RESULTS) {
         return false;
     }
-    printf("Would you like to display %llu results? y/n ", num_lines);
+    printf("Would you like to display more than %llu results? y/n ", num_lines);
     const char ch = static_cast<char>(getchar());
     while ((getchar()) != '\n'); // flush stdin
     puts("");
@@ -156,6 +156,8 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         data->type = it_hex_string;
         data->pattern = pattern;
         data->pattern_len = pattern_len;
+
+        puts("\nSearching for a hex string...");
         break;
     }
     case input_type::it_hex_value : {
@@ -182,9 +184,9 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         extra_char = data->pattern_len & 0x01;
         data->pattern_len = (data->pattern_len + extra_char) / 2;
         if (data->pattern_len <= sizeof(uint64_t)) {
-            puts("\nSearching for a hex value...\n");
+            puts("\nSearching for a hex value...");
         } else {
-            printf("Max supported hex value size: %d bytes!\n", (int)sizeof(uint64_t));
+            printf("Max supported hex value size: %d bytes!", (int)sizeof(uint64_t));
             data->type = it_error_type;
         }
         break;
@@ -193,7 +195,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         data->type = it_ascii_string;
         data->pattern = pattern;
         pattern[data->pattern_len] = 0;
-        puts("\nSearching for an ascii string...\n");
+        puts("\nSearching for an ascii string...");
         break;
     default : 
         data->type = it_error_type;
@@ -341,7 +343,7 @@ char* skip_to_args(char *cmd, size_t len) {
 }
 
 void print_help_common() {
-    puts("********************************");
+    puts("\n********************************");
     puts("?\t\t\t - list commands (this message)");
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");

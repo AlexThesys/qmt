@@ -73,20 +73,20 @@ static void list_memory_regions_info(const dump_context* ctx, bool show_commited
 static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* file_mapping_handle, LPVOID* file_base) {
     *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (*file_handle == INVALID_HANDLE_VALUE) {
-        perror("Failed to open the file.\n");
+        perror("\nFailed to open the file.\n");
         return false;
     }
 
     *file_mapping_handle = CreateFileMapping(*file_handle, NULL, PAGE_READONLY, 0, 0, NULL);
     if (!*file_mapping_handle) {
-        perror("Failed to create file mapping.\n");
+        perror("\nFailed to create file mapping.\n");
         CloseHandle(*file_handle);
         return false;
     }
 
     *file_base = MapViewOfFile(*file_mapping_handle, FILE_MAP_READ, 0, 0, 0);
     if (!*file_base) {
-        perror("Failed to map view of file.\n");
+        perror("\nFailed to map view of file.\n");
         CloseHandle(*file_mapping_handle);
         CloseHandle(*file_handle);
         return false;
@@ -594,7 +594,6 @@ int run_dump_inspection() {
     memset(dump_file_path, 0, sizeof(dump_file_path));
     printf("\nProvide the path to the dmp file: ");
     gets_s(dump_file_path, sizeof(dump_file_path));
-    puts("");
 
     HANDLE file_handle, file_mapping_handle, file_base;
     if (!map_file(dump_file_path, &file_handle, &file_mapping_handle, &file_base)) {
@@ -604,10 +603,10 @@ int run_dump_inspection() {
     dump_context ctx = { { nullptr, 0 }, file_base, file_mapping_handle };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
-        puts("Only x86-64 architecture supported at the moment. Exiting..");
+        puts("\nOnly x86-64 architecture supported at the moment. Exiting..");
         return -1;
     }
-
+    puts("");
     print_help_common();
     print_help();
 
@@ -842,11 +841,13 @@ static void list_memory_regions_info(const dump_context* ctx, bool show_commited
     const MINIDUMP_MEMORY_INFO* memory_info = (MINIDUMP_MEMORY_INFO*)((char*)(memory_info_list) + sizeof(MINIDUMP_MEMORY_INFO_LIST));
 
     ULONG prev_module = (ULONG)(-1);
+    uint64_t num_regions_commited = 0;
     for (ULONG i = 0; i < memory_info_list->NumberOfEntries; ++i) {
         const MINIDUMP_MEMORY_INFO& mem_info = memory_info[i];
         if (show_commited && (mem_info.State != MEM_COMMIT)) {
             continue;
         }
+        num_regions_commited++;
         for (size_t m = 0, sz = ctx->m_data.size(); m < sz; m++) {
             const module_data& mdata = ctx->m_data[m];
             if ((prev_module != m) && ((ULONG64)mdata.base_of_image <= mem_info.BaseAddress) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (mem_info.BaseAddress + mem_info.RegionSize))) {
@@ -862,4 +863,8 @@ static void list_memory_regions_info(const dump_context* ctx, bool show_commited
         print_page_type(mem_info.Type);
     }
     puts("");
+
+    if (show_commited) {
+        printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions_commited);
+    }
 }
