@@ -62,7 +62,7 @@ public:
         return true;
     }
 
-    bool try_push(const T task) {
+    bool try_push(const T& task) {
         guard.lock();
         if (is_full()) {
             guard.unlock();

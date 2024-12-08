@@ -6,22 +6,22 @@ static struct process_context {
 };
 
 namespace {
-static struct block_info {
+struct block_info_process {
     const char* ptr;
     size_t size;
     size_t info_id;
 };
-}
 
-static struct search_context {
-    circular_buffer<block_info, SEARCH_DATA_QUEUE_SIZE_POW2> block_info_queue;
+struct search_context_process {
+    circular_buffer<block_info_process, SEARCH_DATA_QUEUE_SIZE_POW2> block_info_queue;
     std::vector<MEMORY_BASIC_INFORMATION> mem_info;
-    HANDLE process;
-    uint64_t block_size_ideal;
-    process_context ctx;
-    search_context_common common;
-    std::mutex g_err_mtx;
+    HANDLE process = NULL;
+    uint64_t block_size_ideal = 0;
+    process_context *ctx = nullptr;
+    search_context_common common{};
+    std::mutex err_mtx;
 };
+}
 
 static int list_processes();
 static int list_process_modules(DWORD dw_pid);
@@ -29,17 +29,17 @@ static int list_process_threads(DWORD dw_owner_pid);
 static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy);
 static void print_error(TCHAR const* msg);
 
-static void find_pattern(search_context *search_ctx) {
+static void find_pattern(search_context_process* search_ctx) {
     HANDLE process = search_ctx->process;
-    const char* pattern = search_ctx->ctx.common.pattern;
-    const size_t pattern_len = search_ctx->ctx.common.pattern_len;
+    const char* pattern = search_ctx->ctx->common.pattern;
+    const size_t pattern_len = search_ctx->ctx->common.pattern_len;
     auto& matches = search_ctx->common.matches;
     auto& mem_info = search_ctx->mem_info;
+    auto& block_info_queue = search_ctx->block_info_queue;
+    auto& exit_workers = search_ctx->common.exit_workers;
 
     char* buffer = (char*)malloc(search_ctx->block_size_ideal);
-
-    auto& block_info_queue = search_ctx->block_info_queue;
-    block_info block;
+    block_info_process block;
     while (1) {
         int exit = false;
         while (!block_info_queue.try_pop(block)) {
@@ -47,10 +47,9 @@ static void find_pattern(search_context *search_ctx) {
                 exit = true;
                 break;
             }
-            std::unique_lock<std::mutex> lock(search_ctx->common.workers_mtx);
-            search_ctx->common.workers_cv.wait(lock);
+            search_ctx->common.workers_sem.wait();
         }
-        search_ctx->common.master_cv.notify_one();
+        search_ctx->common.master_sem.signal();
         if (exit && !block_info_queue.try_pop(block)) {
             break;
         }
@@ -71,7 +70,7 @@ static void find_pattern(search_context *search_ctx) {
                     continue;
                 }
             } else {
-                std::unique_lock<std::mutex> lk(search_ctx->g_err_mtx);
+                std::unique_lock<std::mutex> lk(search_ctx->err_mtx);
                 if (r_info.Type == MEM_IMAGE) {
                     char module_name[MAX_PATH];
                     if (GetModuleFileNameExA(process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
@@ -116,8 +115,8 @@ static void find_pattern(search_context *search_ctx) {
     free(buffer);
 }
 
-static void search_and_sync(search_context& search_ctx) {
-    const process_context& ctx = search_ctx.ctx;
+static void search_and_sync(search_context_process& search_ctx) {
+    const process_context& ctx = *search_ctx.ctx;
 
     const DWORD alloc_granularity = get_alloc_granularity();
 
@@ -152,6 +151,7 @@ static void search_and_sync(search_context& search_ctx) {
     search_ctx.block_size_ideal = bytes_to_read_ideal;
 
     const size_t num_threads = _min(num_regions, _min(std::thread::hardware_concurrency(), g_max_threads));
+    search_ctx.common.workers_sem.set_max_count(num_threads);
     std::vector<std::thread> workers; workers.reserve(num_threads);
     for (size_t i = 0; i < num_threads; i++) {
         workers.push_back(std::thread(find_pattern, &search_ctx));
@@ -165,8 +165,7 @@ static void search_and_sync(search_context& search_ctx) {
         uint64_t bytes_offset = 0;
         while (region_size) {
             while (block_info_queue.is_full()) {
-                std::unique_lock<std::mutex> lock(search_ctx.common.master_mtx);
-                search_ctx.common.master_cv.wait(lock);
+                search_ctx.common.master_sem.wait();
             }
             size_t bytes_to_read;
             if (region_size >= bytes_to_read_ideal) {
@@ -176,15 +175,15 @@ static void search_and_sync(search_context& search_ctx) {
                 bytes_to_read = region_size;
                 region_size = 0;
             }
-            block_info b = { p + bytes_offset, bytes_to_read, i };
+            block_info_process b = { p + bytes_offset, bytes_to_read, i };
             block_info_queue.try_push(b);
-            search_ctx.common.workers_cv.notify_one();
+            search_ctx.common.workers_sem.signal();
             bytes_offset += block_size;
         }
     }
 
     search_ctx.common.exit_workers = 1;
-    search_ctx.common.workers_cv.notify_all();
+    search_ctx.common.workers_sem.signal(num_threads);
     for (auto& w : workers) {
         if (w.joinable()) {
             w.join();
@@ -192,18 +191,19 @@ static void search_and_sync(search_context& search_ctx) {
     }
 }
 
-static void print_search_results(search_context& search_ctx) {
+static void print_search_results(search_context_process& search_ctx) {
     const uint64_t num_matches = prepare_matches(search_ctx.common.matches);
     if (!num_matches) {
         return;
     }
 
-    printf("*** Total number of matches: %llu ***\n\n", num_matches);
+    printf("*** Total number of matches: %llu ***\n", num_matches);
     uint64_t prev_info_id = (uint64_t)(-1);
 
     for (size_t i = 0; i < num_matches; i++) {
         const size_t info_id = search_ctx.common.matches[i].info_id;
         if (info_id != prev_info_id) {
+            puts("");
             const MEMORY_BASIC_INFORMATION& r_info = search_ctx.mem_info[info_id];
             if (r_info.Type == MEM_IMAGE) {
                 char module_name[MAX_PATH];
@@ -239,8 +239,8 @@ static void search_pattern_in_memory(process_context* ctx) {
     puts("Searching committed memory...");
     puts("\n------------------------------------\n");
 
-    search_context search_ctx;
-    search_ctx.ctx = *ctx;
+    search_context_process search_ctx{};
+    search_ctx.ctx = ctx;
     search_ctx.process = process;
     search_ctx.common.exit_workers = 0;
 

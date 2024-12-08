@@ -16,6 +16,7 @@
 #include <algorithm>
 
 #include "circular_buffer.h"
+#include "semaphore.h"
 
 #define MAX_BUFFER_SIZE 0x1000
 #define MAX_PATTERN_LEN 0x40
@@ -77,12 +78,10 @@ struct search_match {
 };
 
 struct search_context_common {
-    std::condition_variable master_cv;
-    std::condition_variable workers_cv;
     std::vector<search_match> matches;
-    std::mutex master_mtx;
-    std::mutex workers_mtx;
-    volatile BOOL exit_workers;
+    semaphore master_sem;
+    semaphore_counting workers_sem;
+    volatile int exit_workers;
     spinlock matches_lock;
 };
 

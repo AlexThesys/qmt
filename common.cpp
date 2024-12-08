@@ -429,7 +429,7 @@ uint64_t prepare_matches(std::vector<search_match>& matches) {
 
     std::sort(matches.begin(), matches.end(), search_match_less);
     matches.erase(std::unique(matches.begin(), matches.end(),
-        [](const search_match& a, const search_match& b) { return a.match_address == a.match_address; }), matches.end());
+        [](const search_match& a, const search_match& b) { return a.match_address == b.match_address; }), matches.end());
 
     return matches.size();
 }

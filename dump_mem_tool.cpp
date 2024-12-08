@@ -42,8 +42,7 @@ struct reg_search_result {
     };
 };
 
-namespace {
-struct block_info {
+struct block_info_dump {
     size_t start_offset;
     size_t bytes_to_map;
     size_t bytes_to_read;
@@ -51,15 +50,14 @@ struct block_info {
     DWORD high;
     uint64_t info_id;
 };
-}
 
-struct search_context {
-    circular_buffer<block_info, SEARCH_DATA_QUEUE_SIZE_POW2> block_info_queue;
+struct search_context_dump {
+    circular_buffer<block_info_dump, SEARCH_DATA_QUEUE_SIZE_POW2> block_info_queue;
     std::vector<MINIDUMP_MEMORY_DESCRIPTOR64> mem_info;
-    const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors; 
-    const MINIDUMP_MEMORY64_LIST* memory_list;
-    dump_context ctx;
-    search_context_common common;
+    const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors = nullptr; 
+    const MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
+    dump_context *ctx = nullptr;
+    search_context_common common{};
 };
 
 static void get_system_info(dump_context* ctx);
@@ -126,15 +124,15 @@ static bool remap_file(HANDLE file_mapping_handle, LPVOID* file_base) {
     return true;
 }
 
-static void find_pattern(search_context* search_ctx) {
-    const char* pattern = search_ctx->ctx.common.pattern;
-    const size_t pattern_len = search_ctx->ctx.common.pattern_len;
+static void find_pattern(search_context_dump* search_ctx) {
+    const char* pattern = search_ctx->ctx->common.pattern;
+    const size_t pattern_len = search_ctx->ctx->common.pattern_len;
     auto& matches = search_ctx->common.matches;
     auto& mem_info = search_ctx->mem_info;
-
     auto& block_info_queue = search_ctx->block_info_queue;
-    block_info block;
+    auto& exit_workers = search_ctx->common.exit_workers;
 
+    block_info_dump block;
     while (1) {
         int exit = false;
         while (!block_info_queue.try_pop(block)) {
@@ -142,10 +140,9 @@ static void find_pattern(search_context* search_ctx) {
                 exit = true;
                 break;
             }
-            std::unique_lock<std::mutex> lock(search_ctx->common.workers_mtx);
-            search_ctx->common.workers_cv.wait(lock);
+            search_ctx->common.workers_sem.wait();
         }
-        search_ctx->common.master_cv.notify_one();
+        search_ctx->common.master_sem.signal();
         if (exit && !block_info_queue.try_pop(block)) {
             break;
         }
@@ -159,7 +156,7 @@ static void find_pattern(search_context* search_ctx) {
         const size_t info_id = block.info_id;
         const MINIDUMP_MEMORY_DESCRIPTOR64& r_info = mem_info[info_id];
 
-        HANDLE file_base = MapViewOfFile(search_ctx->ctx.file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
+        HANDLE file_base = MapViewOfFile(search_ctx->ctx->file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
 
         if (!file_base) {
             perror("Failed to map view of file.\n");
@@ -197,14 +194,14 @@ static void find_pattern(search_context* search_ctx) {
     }
 }
 
-static void search_and_sync(search_context& search_ctx) {
-    dump_context& ctx = search_ctx.ctx;
+static void search_and_sync(search_context_dump& search_ctx) {
+    dump_context& ctx = *search_ctx.ctx;
 
     const DWORD alloc_granularity = get_alloc_granularity();
 
     auto& mem_info = search_ctx.mem_info;
-    const char* pattern = search_ctx.ctx.common.pattern;
-    const size_t pattern_len = search_ctx.ctx.common.pattern_len;
+    const char* pattern = ctx.common.pattern;
+    const size_t pattern_len = ctx.common.pattern_len;
 
     // collect memory regions
     size_t num_regions = search_ctx.memory_list->NumberOfMemoryRanges;
@@ -237,6 +234,7 @@ static void search_and_sync(search_context& search_ctx) {
     const size_t bytes_to_read_ideal = block_size + extra_chunk;
 
     const size_t num_threads = _min(num_regions, _min(std::thread::hardware_concurrency(), g_max_threads));
+    search_ctx.common.workers_sem.set_max_count(num_threads);
     std::vector<char*> buffers(num_threads);
     std::vector<std::thread> workers; workers.reserve(num_threads);
     for (size_t i = 0; i < num_threads; i++) {
@@ -257,8 +255,7 @@ static void search_and_sync(search_context& search_ctx) {
 
         while (total_bytes_to_map) {
             while (block_info_queue.is_full()) {
-                std::unique_lock<std::mutex> lock(search_ctx.common.master_mtx);
-                search_ctx.common.master_cv.wait(lock);
+                search_ctx.common.master_sem.wait();
             }
             size_t bytes_to_map;
             if (total_bytes_to_map >= bytes_to_read_ideal) {
@@ -274,9 +271,9 @@ static void search_and_sync(search_context& search_ctx) {
             const DWORD low = (DWORD)(offset_aligned & 0xFFFFFFFF);
             offset_aligned += block_size;
 
-            block_info b = { start_offset, bytes_to_map, bytes_to_read, low, high, i };
+            block_info_dump b = { start_offset, bytes_to_map, bytes_to_read, low, high, i };
             block_info_queue.try_push(b);
-            search_ctx.common.workers_cv.notify_one();
+            search_ctx.common.workers_sem.signal();
 
             start_offset += bytes_to_read - extra_chunk;
             reminder = 0;
@@ -284,7 +281,7 @@ static void search_and_sync(search_context& search_ctx) {
     }
 
     search_ctx.common.exit_workers = 1;
-    search_ctx.common.workers_cv.notify_all();
+    search_ctx.common.workers_sem.signal(num_threads);
     for (auto& w : workers) {
         if (w.joinable()) {
             w.join();
@@ -298,7 +295,7 @@ static void search_and_sync(search_context& search_ctx) {
     gather_threads(&ctx);
 }
 
-static void print_search_results(search_context& search_ctx) {
+static void print_search_results(search_context_dump& search_ctx) {
     const uint64_t num_matches = prepare_matches(search_ctx.common.matches);
     if (!num_matches) {
         return;
@@ -314,8 +311,8 @@ static void print_search_results(search_context& search_ctx) {
             puts("\n------------------------------------\n");
             bool found_in_image = false;
             const MINIDUMP_MEMORY_DESCRIPTOR64& r_info = search_ctx.mem_info[info_id];
-            for (size_t m = 0, sz = search_ctx.ctx.m_data.size(); m < sz; m++) {
-                const module_data& mdata = search_ctx.ctx.m_data[m];
+            for (size_t m = 0, sz = search_ctx.ctx->m_data.size(); m < sz; m++) {
+                const module_data& mdata = search_ctx.ctx->m_data[m];
                 if (((ULONG64)mdata.base_of_image <= r_info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (r_info.StartOfMemoryRange + r_info.DataSize))) {
                     wprintf((LPWSTR)L"Module name: %s\n", mdata.name);
                     found_in_image = true;
@@ -323,8 +320,8 @@ static void print_search_results(search_context& search_ctx) {
                 }
             }
             if (!found_in_image) {
-                for (size_t t = 0, sz = search_ctx.ctx.t_data.size(); t < sz; t++) {
-                    const thread_data& tdata = search_ctx.ctx.t_data[t];
+                for (size_t t = 0, sz = search_ctx.ctx->t_data.size(); t < sz; t++) {
+                    const thread_data& tdata = search_ctx.ctx->t_data[t];
                     if (((ULONG64)tdata.stack_base >= r_info.StartOfMemoryRange) && (tdata.context->Rsp <= (r_info.StartOfMemoryRange + r_info.DataSize))) {
                         wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tdata.tid);
                         break;
@@ -354,10 +351,10 @@ static void search_pattern_in_memory(dump_context *ctx) {
     puts("Searching crash dump memory...");
     puts("\n------------------------------------\n");
 
-    search_context search_ctx;
+    search_context_dump search_ctx;
     search_ctx.memory_list = memory_list;
     search_ctx.memory_descriptors = memory_descriptors;
-    search_ctx.ctx = *ctx;
+    search_ctx.ctx = ctx;
     search_ctx.common.exit_workers = 0;
 
     search_and_sync(search_ctx);
