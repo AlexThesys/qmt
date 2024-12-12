@@ -348,6 +348,10 @@ void print_help_common() {
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
+    puts("xb <N> @ <address>\t - hexdump N bytes at address");
+    puts("xw <N> @ <address>\t - hexdump N words at address");
+    puts("xd <N> @ <address>\t - hexdump N dwords at address");
+    puts("xq <N> @ <address>\t - hexdump N qwords at address");
     puts("q\t\t\t - quit the program");
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
@@ -410,6 +414,41 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 }
             }
         }
+    } else if (cmd[0] == 'x') {
+        hexdump_mode mode;
+        if (cmd[1] == 'b') {
+            mode = hexdump_mode::hm_bytes;
+        } else if (cmd[1] == 'w') {
+            mode = hexdump_mode::hm_words;
+        } else if (cmd[1] == 'd') {
+            mode = hexdump_mode::hm_dwords;
+        } else if (cmd[1] == 'q') {
+            mode = hexdump_mode::hm_qwords;
+        } else {
+            puts(unknown_command);
+            return c_continue;
+        }
+
+        int size = 0; 
+        void *p = nullptr;
+        int res = sscanf_s(cmd, "%*s %d @ %p", &size, &p);
+        if (res < 2) {
+            res = sscanf_s(cmd, "%*s %x @ %p", &size, &p);
+            if (res < 2) {
+                puts("Error parsing the input;");
+                return c_continue;
+            }
+        }
+        if (((size * mode) > MAX_BYTE_TO_HEXDUMP) || (size <= 0)) {
+            printf("Invalid number of bytes to display. The limit is 0x%x\n", MAX_BYTE_TO_HEXDUMP);
+            return c_continue;
+        }
+
+        ctx->hdata.address = (uint8_t*)p;
+        ctx->hdata.num_to_display = size;
+        ctx->hdata.mode = mode;
+
+        command = c_print_hexdump;
     } else {
         command = c_not_set;
     }
@@ -434,4 +473,93 @@ uint64_t prepare_matches(std::vector<search_match>& matches) {
         [](const search_match& a, const search_match& b) { return a.match_address == b.match_address; }), matches.end());
 
     return matches.size();
+}
+
+void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes) {
+    printf("    - offset -      ");
+    const uint8_t* address = hdata.address;
+    const size_t size_bytes = bytes.size();
+    const size_t size = size_bytes / hdata.mode;
+    constexpr int bytes_in_row = 0x10;
+    const int num_cols = bytes_in_row / hdata.mode;
+    switch (hdata.mode) {
+    case hm_bytes: {
+        for (int i = 0; i < num_cols; i++) {
+            printf("%02x ", ((uint32_t)address + i) & 0xFF);
+        }
+        printf(" ");
+        for (int i = 0; i < num_cols; i++) {
+            printf("%1x", ((uint32_t)address + i) & 0xF);
+        }
+        puts("");
+        size_t byte_id = 0;
+        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += num_cols) {
+            printf("0x%p  ", address);
+            address += num_cols;
+            const size_t _sz = _min(num_cols, (size - byte_id));
+            for (int j = 0; j < _sz; j++) {
+                printf("%02x ", (uint8_t)bytes[byte_id+j]);
+            }
+            for (int j = _sz; j < num_cols; j++) {
+                printf("   ");
+            }
+            printf(" ");
+            for (int j = 0; j < _sz; j++) {
+                char ch = (char)bytes[byte_id + j];
+                if ((ch >= '!') && (ch <= '~')) {
+                    printf("%c", (char)bytes[byte_id + j]);
+                } else {
+                    printf(".");
+                }
+            }
+            puts("");
+        }
+        break;
+    }
+    case hm_words: {
+        puts("");
+        size_t byte_id = 0;
+        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
+            printf("0x%p  ", address);
+            address += num_cols;
+            const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
+            for (int j = 0; j < _sz; j+=sizeof(uint16_t)) {
+                printf("0x%04x ", *(uint16_t*)&bytes[byte_id + j]);
+            }
+            puts("");
+        }
+        break;
+    }
+    case hm_dwords: {
+        puts("");
+        size_t byte_id = 0;
+        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += num_cols) {
+            printf("0x%p  ", address);
+            address += num_cols;
+            const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
+            for (int j = 0; j < _sz; j += sizeof(uint32_t)) {
+                printf("0x%08x ", *(uint32_t*)&bytes[byte_id + j]);
+            }
+            puts("");
+        }
+        break;
+    }
+    case hm_qwords: {
+        puts("");
+        size_t byte_id = 0;
+        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += num_cols) {
+            printf("0x%p  ", address);
+            address += num_cols;
+            const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
+            for (int j = 0; j < _sz; j += sizeof(uint64_t)) {
+                printf("0x%016x ", *(uint64_t*)&bytes[byte_id + j]);
+            }
+            puts("");
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    puts("");
 }

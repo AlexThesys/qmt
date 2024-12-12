@@ -241,7 +241,7 @@ static void print_search_results(search_context_proc& search_ctx) {
 }
 
 static void search_pattern_in_memory(proc_processing_context* ctx) {
-    assert(ctx->common.pattern != nullptr);
+    assert(ctx->common.pdata.pattern != nullptr);
     HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
     if (process == NULL) {
         fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
@@ -263,6 +263,68 @@ static void search_pattern_in_memory(proc_processing_context* ctx) {
 
     search_and_sync(search_ctx);
     print_search_results(search_ctx);
+
+    CloseHandle(process);
+}
+
+static void print_hexdump_proc(proc_processing_context* ctx) {
+    std::vector<uint8_t> bytes;
+    const uint8_t* address = ctx->common.hdata.address;
+
+    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
+    if (process == NULL) {
+        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+        return;
+    }
+
+    char proc_name[MAX_PATH];
+    if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
+        printf("Process name: %s\n\n", proc_name);
+    }
+    puts("\n------------------------------------\n");
+
+    {
+        const char* p = NULL;
+        MEMORY_BASIC_INFORMATION info;
+        for (p = NULL; VirtualQueryEx(process, p, &info, sizeof(info)) == sizeof(info); p += info.RegionSize) {
+            if (info.State == MEM_COMMIT) {
+                const size_t region_size = info.RegionSize;
+                if ((address >= info.BaseAddress) && (address < ((uint8_t*)info.BaseAddress + region_size))) {
+                    size_t bytes_to_read = ctx->common.hdata.num_to_display * ctx->common.hdata.mode;
+                    bytes_to_read = _min(bytes_to_read, (region_size - (address - info.BaseAddress)));
+                    bytes_to_read = (bytes_to_read / ctx->common.hdata.mode) * ctx->common.hdata.mode;
+                    uint8_t* buffer = (uint8_t*)malloc(bytes_to_read);
+                    SIZE_T bytes_read;
+                    const BOOL res = ReadProcessMemory(process, address, buffer, bytes_to_read, &bytes_read);
+                    if (!res || !bytes_read) {
+                        puts("Error reading the memory region.");
+                        free(buffer);
+                        return;
+                    }
+                    if (bytes_to_read == bytes_read) {
+                        ctx->common.hdata.num_to_display = bytes_to_read;
+                    } else {
+                        ctx->common.hdata.num_to_display = bytes_read / ctx->common.hdata.mode;
+                        bytes_to_read = ctx->common.hdata.num_to_display * ctx->common.hdata.mode;
+                    }
+
+                    bytes.reserve(bytes_to_read);
+                    for (int i = 0; i < bytes_to_read; i++) {
+                        bytes.push_back(buffer[i]);
+                    }
+                    free(buffer);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (0 == bytes.size()) {
+        puts("Address not found in commited memory ranges.");
+        return;
+    }
+
+    print_hexdump(ctx->common.hdata, bytes);
 
     CloseHandle(process);
 }
@@ -360,6 +422,9 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
     case c_search_pattern_in_registers :
         puts(command_not_implemented);
         puts("");
+        break;
+    case c_print_hexdump :
+        print_hexdump_proc(ctx);
         break;
     case c_list_pids:
         list_processes();

@@ -27,6 +27,7 @@
 #define DEFAULT_ALLOC_BLOCKS 0x02
 #define MAX_ALLOC_BLOCKS 0x08
 #define SEARCH_DATA_QUEUE_SIZE_POW2 0X04
+#define MAX_BYTE_TO_HEXDUMP 0x1000
 
 enum input_type {
     it_hex_string,
@@ -40,6 +41,7 @@ enum input_command {
     c_search_pattern,
     c_search_pattern_in_registers,
     c_list_pids,
+    c_print_hexdump,
     c_list_modules,
     c_list_threads,
     c_list_thread_registers,
@@ -60,13 +62,27 @@ enum inspection_mode {
     im_none
 };
 
+enum hexdump_mode {
+    hm_bytes = 1,
+    hm_words = 2,
+    hm_dwords = 4,
+    hm_qwords = 8
+};
+
 struct pattern_data {
     const char* pattern;
     uint64_t pattern_len;
 };
 
+struct hexdump_data {
+    const uint8_t* address;
+    size_t num_to_display;
+    hexdump_mode mode;
+};
+
 struct common_processing_context {
     pattern_data pdata;
+    hexdump_data hdata;
 };
 
 struct search_data_info {
@@ -114,6 +130,7 @@ bool parse_cmd_args(int argc, const char** argv);
 void print_help_common();
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* cmd, char* pattern);
 uint64_t prepare_matches(std::vector<search_match>& matches);
+void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t> &bytes);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))

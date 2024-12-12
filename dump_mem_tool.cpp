@@ -497,6 +497,65 @@ static void search_pattern_in_registers(const dump_processing_context *ctx) {
     puts("");
 }
 
+static void print_hexdump_dump(dump_processing_context* ctx) {
+    std::vector<uint8_t> bytes;
+    const uint8_t* address = ctx->common.hdata.address;
+
+    MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
+    ULONG stream_size = 0;
+    if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
+        perror("Failed to read Memory64ListStream.\n");
+        return;
+    }
+    puts("\n------------------------------------\n");
+
+    const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors = (MINIDUMP_MEMORY_DESCRIPTOR64*)((char*)(memory_list)+sizeof(MINIDUMP_MEMORY64_LIST));
+    const DWORD alloc_granularity = get_alloc_granularity();
+    size_t num_regions = memory_list->NumberOfMemoryRanges;
+    size_t cumulative_offset = 0;
+
+    for (ULONG i = 0; i < num_regions; ++i) {
+        const MINIDUMP_MEMORY_DESCRIPTOR64& mem_desc = memory_descriptors[i];
+        const SIZE_T region_size = static_cast<SIZE_T>(mem_desc.DataSize);
+        if (((ULONG64)address >= mem_desc.StartOfMemoryRange) && ((ULONG64)address < (mem_desc.StartOfMemoryRange + region_size))) {
+            size_t bytes_to_read = ctx->common.hdata.num_to_display * ctx->common.hdata.mode;
+            const ULONG64 start_offset = (ULONG64)address - mem_desc.StartOfMemoryRange;
+            bytes_to_read = _min(bytes_to_read, (region_size - start_offset));
+            ctx->common.hdata.num_to_display = bytes_to_read / ctx->common.hdata.mode;
+            bytes_to_read = ctx->common.hdata.num_to_display * ctx->common.hdata.mode;
+
+            const uint64_t rva_offset = memory_list->BaseRva + cumulative_offset + start_offset;           
+            uint64_t rva_offset_aligned = rva_offset & ~(alloc_granularity - 1);
+            uint64_t reminder = rva_offset - rva_offset_aligned;
+            const size_t bytes_to_map = bytes_to_read + reminder;
+            const DWORD high = (DWORD)((rva_offset_aligned >> 0x20) & 0xFFFFFFFF);
+            const DWORD low = (DWORD)(rva_offset_aligned & 0xFFFFFFFF);
+            HANDLE file_base = MapViewOfFile(ctx->file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
+            const char* buffer = ((const char*)file_base + reminder);
+            if (!buffer) {
+                UnmapViewOfFile(file_base);
+                puts("Empty memory region!");
+                return;
+            }
+            bytes.reserve(bytes_to_read);
+            for (int i = 0; i < bytes_to_read; i++) {
+                bytes.push_back(buffer[i]);
+            }
+
+            UnmapViewOfFile(file_base);
+            break;
+        }
+        cumulative_offset += mem_desc.DataSize;
+    }
+
+    if (0 == bytes.size()) {
+        puts("Address not found in commited memory ranges.");
+        return;
+    }
+
+    print_hexdump(ctx->common.hdata, bytes);
+}
+
 static void print_help() {
     puts("--------------------------------");
     puts("/xr <pattern>\t\t - search for a hex value in registers");
@@ -550,7 +609,7 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
     return command;
 }
 
-static void execute_command(input_command cmd, const dump_processing_context *ctx) {
+static void execute_command(input_command cmd, dump_processing_context *ctx) {
     switch (cmd) {
     case c_help :
         print_help_common();
@@ -561,6 +620,9 @@ static void execute_command(input_command cmd, const dump_processing_context *ct
         break;
     case c_search_pattern_in_registers :
         search_pattern_in_registers(ctx);
+        break;
+    case c_print_hexdump:
+        print_hexdump_dump(ctx);
         break;
     case c_list_memory_regions :
         if (!list_memory64_regions(ctx)) {
