@@ -170,16 +170,15 @@ static void search_and_sync(search_context_proc& search_ctx) {
     {
         const char* p = NULL;
         MEMORY_BASIC_INFORMATION info;
+        const bool scoped_search = ctx.common.pdata.mem_type != memory_region_type::mrt_all;
         for (p = NULL; VirtualQueryEx(process, p, &info, sizeof(info)) == sizeof(info); p += info.RegionSize) {
             if (info.State == MEM_COMMIT) {
                 size_t region_size = info.RegionSize;
                 if (region_size < pattern_len) {
                     continue;
                 }
-                if (ctx.common.pdata.mem_type != memory_region_type::mrt_all) {
-                    if (!identify_memory_region_type(ctx.common.pdata.mem_type, info, thread_info)) {
-                        continue;
-                    }
+                if (scoped_search &&!identify_memory_region_type(ctx.common.pdata.mem_type, info, thread_info)) {
+                    continue;
                 }
                 mem_info.push_back(info);
                 blocks.push_back(p);

@@ -243,6 +243,7 @@ static void search_and_sync(search_context_dump& search_ctx) {
     mem_info.reserve(num_regions);
     std::vector<uint64_t> rva_offsets; rva_offsets.reserve(num_regions);
     size_t cumulative_offset = 0;
+    const bool scoped_search = ctx.common.pdata.mem_type != memory_region_type::mrt_all;
     for (ULONG i = 0; i < num_regions; ++i) {
         const MINIDUMP_MEMORY_DESCRIPTOR64& mem_desc = search_ctx.memory_descriptors[i];
         const uint64_t offset = search_ctx.memory_list->BaseRva + cumulative_offset;
@@ -251,10 +252,8 @@ static void search_and_sync(search_context_dump& search_ctx) {
         if (region_size < pattern_len) {
             continue;
         }
-        if (ctx.common.pdata.mem_type != memory_region_type::mrt_all) {
-            if (!identify_memory_region_type(ctx.common.pdata.mem_type, mem_desc, ctx)) {
-                continue;
-            }
+        if (scoped_search && !identify_memory_region_type(ctx.common.pdata.mem_type, mem_desc, ctx)) {
+            continue;
         }
         mem_info.push_back(mem_desc);
         rva_offsets.push_back(offset);
