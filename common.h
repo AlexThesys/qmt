@@ -36,6 +36,13 @@ enum input_type {
     it_error_type,
 };
 
+enum memory_region_type {
+    mrt_all = 0,
+    mrt_image,
+    mrt_stack,
+    mrt_heap,
+};
+
 enum input_command {
     c_help,
     c_search_pattern,
@@ -72,6 +79,7 @@ enum hexdump_mode {
 struct pattern_data {
     const char* pattern;
     uint64_t pattern_len;
+    memory_region_type mem_type;
 };
 
 struct hexdump_data {

@@ -348,6 +348,7 @@ void print_help_common() {
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
+    puts("All search commands have optional i|s|h modifiers to limit the search to image | stack | heap");
     puts("xb <N> @ <address>\t - hexdump N bytes at address");
     puts("xw <N> @ <address>\t - hexdump N words at address");
     puts("xd <N> @ <address>\t - hexdump N dwords at address");
@@ -373,17 +374,51 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     } else if (cmd[0] == '?') {
         command = c_help;
     } else if (cmd[0] == '/') {
-        input_type in_type = input_type::it_error_type;
-        if (cmd[1] == ' ') {
-            in_type = input_type::it_hex_string;
-        } else if (cmd[1] == 'x') {
-            in_type = input_type::it_hex_value;
-        } else if (cmd[1] == 'a') {
-            in_type = input_type::it_ascii_string;
-        } else {
-            puts(unknown_command);
-            return c_continue;
+        constexpr int max_seach_cmd_len = 3;
+        int cmd_length = 1;
+        for (; cmd_length < max_seach_cmd_len; cmd_length++) {
+            if (cmd[cmd_length] == ' ') break;
         }
+        // defaults
+        input_type in_type = input_type::it_hex_string;
+        memory_region_type mem_type = memory_region_type::mrt_all;
+        command = c_search_pattern;
+        // modifiers
+        for (int i = 1; i < cmd_length; i++) {
+            switch (cmd[i]) {
+            case 'x':
+                in_type = input_type::it_hex_value;
+                break;
+            case 'a':
+                in_type = input_type::it_ascii_string;
+                break;
+            case 'i':
+                mem_type = memory_region_type::mrt_image;
+                break;
+            case 's':
+                mem_type = memory_region_type::mrt_stack;
+                break;
+            case 'h':
+                mem_type = memory_region_type::mrt_heap;
+                break;
+                break;
+            case 'r':
+                command = c_search_pattern_in_registers;
+                break;
+            default:
+                puts(unknown_command);
+                return c_continue;
+            }
+        }
+
+        if (command == c_search_pattern_in_registers) {
+            if ((in_type != input_type::it_hex_string) || (mem_type != memory_region_type::mrt_all)) {
+                puts(unknown_command);
+                return c_continue;
+            }
+        }
+
+        ctx->pdata.mem_type = mem_type;
         memset(pattern, 0, MAX_PATTERN_LEN);
         size_t pattern_len = strlen(cmd);
         char* args = skip_to_args(cmd, pattern_len);
@@ -402,17 +437,6 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         } else {
             ctx->pdata.pattern = data->pdata.pattern;
             ctx->pdata.pattern_len = data->pdata.pattern_len;
-            command = c_search_pattern;
-            if ((cmd[1] == 'x')) {
-                if (cmd[2] == ' ') {
-                    command = c_search_pattern;
-                } else if (cmd[2] == 'r') {
-                    command = c_search_pattern_in_registers;
-                } else {
-                    puts(unknown_command);
-                    return c_continue;
-                }
-            }
         }
     } else if (cmd[0] == 'x') {
         hexdump_mode mode;

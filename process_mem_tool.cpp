@@ -110,8 +110,8 @@ static void find_pattern(search_context_proc* search_ctx) {
                 }
 
                 const size_t buffer_offset = buffer_ptr - buffer;
-                search_ctx->common.matches_lock.lock();
                 const char* match = ptr + buffer_offset;
+                search_ctx->common.matches_lock.lock();
                 matches.push_back(search_match{ block.info_id, match });
                 search_ctx->common.matches_lock.unlock();
 
@@ -123,10 +123,43 @@ static void find_pattern(search_context_proc* search_ctx) {
     free(buffer);
 }
 
+static bool identify_memory_region_type(memory_region_type mem_type, const MEMORY_BASIC_INFORMATION &info, const std::vector<thread_info_proc> &thread_info) {
+    if (mem_type == memory_region_type::mrt_image) {
+        if (info.Type == MEM_IMAGE) {
+            return true;
+        }
+    } else if (mem_type == memory_region_type::mrt_stack) {
+        if (info.Type == MEM_IMAGE) {
+            return false;
+        }
+        for (const auto& ti : thread_info) {
+            if (((ULONG64)ti.stack_ptr >= (ULONG64)info.BaseAddress) && ((ULONG64)(ti.stack_ptr - ti.stack_size) <= ((ULONG64)info.BaseAddress + info.RegionSize))) {
+                return true;
+            }
+        }
+    } else if (mem_type == memory_region_type::mrt_heap) {
+        if (info.Type == MEM_IMAGE) {
+            return false;
+        }
+        for (const auto& ti : thread_info) {
+            if (((ULONG64)ti.stack_ptr >= (ULONG64)info.BaseAddress) && ((ULONG64)(ti.stack_ptr - ti.stack_size) <= ((ULONG64)info.BaseAddress + info.RegionSize))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 static void search_and_sync(search_context_proc& search_ctx) {
     const proc_processing_context& ctx = *search_ctx.ctx;
 
     const DWORD alloc_granularity = get_alloc_granularity();
+
+    std::vector<thread_info_proc> thread_info;
+    if ((ctx.common.pdata.mem_type == memory_region_type::mrt_stack) || (ctx.common.pdata.mem_type == memory_region_type::mrt_heap)) {
+        gather_thread_info(search_ctx.ctx->pid, thread_info);
+    }
 
     // collect memory regions
     auto& mem_info = search_ctx.mem_info;
@@ -142,6 +175,11 @@ static void search_and_sync(search_context_proc& search_ctx) {
                 size_t region_size = info.RegionSize;
                 if (region_size < pattern_len) {
                     continue;
+                }
+                if (ctx.common.pdata.mem_type != memory_region_type::mrt_all) {
+                    if (!identify_memory_region_type(ctx.common.pdata.mem_type, info, thread_info)) {
+                        continue;
+                    }
                 }
                 mem_info.push_back(info);
                 blocks.push_back(p);
@@ -466,7 +504,7 @@ int run_process_inspection() {
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
 
     search_data_info data;
-    proc_processing_context ctx = { { pattern_data{ nullptr, 0 } }, (DWORD)(-1) };
+    proc_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, (DWORD)(-1) };
 
     while (1) {
         printf(">: ");

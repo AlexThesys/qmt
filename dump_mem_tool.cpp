@@ -184,7 +184,9 @@ static void find_pattern(search_context_dump* search_ctx) {
 
                 const size_t buffer_offset = buffer_ptr - buffer;
                 const char* match = (const char*)(r_info.StartOfMemoryRange + buffer_offset + start_offset);
+                search_ctx->common.matches_lock.lock();
                 matches.push_back(search_match{ block.info_id, match });
+                search_ctx->common.matches_lock.unlock();
 
                 buffer_ptr++;
                 buffer_size -= (buffer_ptr - old_buf_ptr);
@@ -192,6 +194,39 @@ static void find_pattern(search_context_dump* search_ctx) {
         }
         UnmapViewOfFile(file_base);
     }
+}
+
+static bool identify_memory_region_type(memory_region_type mem_type, const MINIDUMP_MEMORY_DESCRIPTOR64 &info, const dump_processing_context &ctx) {
+    if (mem_type == memory_region_type::mrt_image) {
+        for (size_t m = 0, sz = ctx.m_data.size(); m < sz; m++) {
+            const module_data& mdata = ctx.m_data[m];
+            if (((ULONG64)mdata.base_of_image <= info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (info.StartOfMemoryRange + info.DataSize))) {
+                return true;
+            }
+        }
+    } else if (mem_type == memory_region_type::mrt_stack) {
+        for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
+            const thread_info_dump& tdata = ctx.t_data[t];
+            if (((ULONG64)tdata.stack_base >= info.StartOfMemoryRange) && (tdata.context->Rsp <= (info.StartOfMemoryRange + info.DataSize))) {
+                return true;
+            }
+        }
+    } else if (mem_type == memory_region_type::mrt_heap) {
+        for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
+            const thread_info_dump& tdata = ctx.t_data[t];
+            if (((ULONG64)tdata.stack_base >= info.StartOfMemoryRange) && (tdata.context->Rsp <= (info.StartOfMemoryRange + info.DataSize))) {
+                return false;
+            }
+        }
+        for (size_t m = 0, sz = ctx.m_data.size(); m < sz; m++) {
+            const module_data& mdata = ctx.m_data[m];
+            if (((ULONG64)mdata.base_of_image <= info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (info.StartOfMemoryRange + info.DataSize))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
 }
 
 static void search_and_sync(search_context_dump& search_ctx) {
@@ -215,6 +250,11 @@ static void search_and_sync(search_context_dump& search_ctx) {
         const SIZE_T region_size = static_cast<SIZE_T>(mem_desc.DataSize);
         if (region_size < pattern_len) {
             continue;
+        }
+        if (ctx.common.pdata.mem_type != memory_region_type::mrt_all) {
+            if (!identify_memory_region_type(ctx.common.pdata.mem_type, mem_desc, ctx)) {
+                continue;
+            }
         }
         mem_info.push_back(mem_desc);
         rva_offsets.push_back(offset);
@@ -309,21 +349,21 @@ static void print_search_results(search_context_dump& search_ctx) {
         const size_t info_id = search_ctx.common.matches[i].info_id;
         if (info_id != prev_info_id) {
             puts("\n------------------------------------\n");
-            bool found_in_image = false;
             const MINIDUMP_MEMORY_DESCRIPTOR64& r_info = search_ctx.mem_info[info_id];
-            for (size_t m = 0, sz = search_ctx.ctx->m_data.size(); m < sz; m++) {
-                const module_data& mdata = search_ctx.ctx->m_data[m];
-                if (((ULONG64)mdata.base_of_image <= r_info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (r_info.StartOfMemoryRange + r_info.DataSize))) {
-                    wprintf((LPWSTR)L"Module name: %s\n", mdata.name);
-                    found_in_image = true;
+            bool found_on_stack = false;
+            for (size_t t = 0, sz = search_ctx.ctx->t_data.size(); t < sz; t++) {
+                const thread_info_dump& tdata = search_ctx.ctx->t_data[t];
+                if (((ULONG64)tdata.stack_base >= r_info.StartOfMemoryRange) && (tdata.context->Rsp <= (r_info.StartOfMemoryRange + r_info.DataSize))) {
+                    wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tdata.tid);
+                    found_on_stack = true;
                     break;
                 }
             }
-            if (!found_in_image) {
-                for (size_t t = 0, sz = search_ctx.ctx->t_data.size(); t < sz; t++) {
-                    const thread_info_dump& tdata = search_ctx.ctx->t_data[t];
-                    if (((ULONG64)tdata.stack_base >= r_info.StartOfMemoryRange) && (tdata.context->Rsp <= (r_info.StartOfMemoryRange + r_info.DataSize))) {
-                        wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tdata.tid);
+            if (!found_on_stack) {
+                for (size_t m = 0, sz = search_ctx.ctx->m_data.size(); m < sz; m++) {
+                    const module_data& mdata = search_ctx.ctx->m_data[m];
+                    if (((ULONG64)mdata.base_of_image <= r_info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (r_info.StartOfMemoryRange + r_info.DataSize))) {
+                        wprintf((LPWSTR)L"Module name: %s\n", mdata.name);
                         break;
                     }
                 }
@@ -662,7 +702,7 @@ int run_dump_inspection() {
         return -1;
     }
 
-    dump_processing_context ctx = { { pattern_data{ nullptr, 0 } }, file_base, file_mapping_handle };
+    dump_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, file_base, file_mapping_handle };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
         puts("\nOnly x86-64 architecture supported at the moment. Exiting..");
