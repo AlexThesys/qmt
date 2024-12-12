@@ -509,11 +509,11 @@ void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes)
     switch (hdata.mode) {
     case hm_bytes: {
         for (int i = 0; i < num_cols; i++) {
-            printf("%02x ", ((uint32_t)address + i) & 0xFF);
+            printf("%02X ", ((uint32_t)address + i) & 0xFF);
         }
         printf(" ");
         for (int i = 0; i < num_cols; i++) {
-            printf("%1x", ((uint32_t)address + i) & 0xF);
+            printf("%1X", ((uint32_t)address + i) & 0x0F);
         }
         puts("");
         size_t byte_id = 0;
