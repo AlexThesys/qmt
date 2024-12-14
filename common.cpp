@@ -18,6 +18,8 @@ LONG64 g_num_alloc_blocks = DEFAULT_ALLOC_BLOCKS;
 int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
 
+static DWORD clear_screen();
+
 static constexpr int check_architecture_ct() {
 #if defined(__x86_64__) || defined(_M_X64)
     return 1;
@@ -353,7 +355,8 @@ void print_help_common() {
     puts("xw <N> @ <address>\t - hexdump N words at address");
     puts("xd <N> @ <address>\t - hexdump N dwords at address");
     puts("xq <N> @ <address>\t - hexdump N qwords at address");
-    puts("q\t\t\t - quit the program");
+    puts("clear\t\t\t - clear screen");
+    puts("q | exit\t\t - quit program");
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
 }
@@ -368,11 +371,14 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     }
     if (cmd[0] == 0) {
         command = c_continue;
-    } else if ((cmd[0] == 'q') || (cmd[0] == 'Q')) {
+    } else if ((cmd[0] == 'q') || (cmd[0] == 'Q') || (0 == strcmp(cmd, "exit"))) {
         puts("\n==== Exiting... ====");
         command = c_quit_program;
     } else if (cmd[0] == '?') {
         command = c_help;
+    } else if (0 == strcmp(cmd, "clear")) {
+        clear_screen();
+        command = c_continue;
     } else if (cmd[0] == '/') {
         constexpr int max_seach_cmd_len = 3;
         int cmd_length = 1;
@@ -586,4 +592,34 @@ void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes)
         break;
     }
     puts("");
+}
+
+static DWORD clear_screen() {
+    HANDLE h_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    DWORD mode = 0;
+    if (!GetConsoleMode(h_stdout, &mode))
+    {
+        return ::GetLastError();
+    }
+
+    const DWORD original_mode = mode;
+    mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+
+    if (!SetConsoleMode(h_stdout, mode))
+    {
+        return ::GetLastError();
+    }
+
+    DWORD written = 0;
+    PCWSTR sequence = L"\x1b[2J \x1b[3J \x1b[0;0H";
+    if (!WriteConsoleW(h_stdout, sequence, (DWORD)wcslen(sequence), &written, NULL))
+    {
+        SetConsoleMode(h_stdout, original_mode);
+        return ::GetLastError();
+    }
+
+    SetConsoleMode(h_stdout, original_mode);
+
+    return 0;
 }
