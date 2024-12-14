@@ -131,7 +131,7 @@ int check_architecture_rt();
 const char* get_page_state(DWORD state);
 void print_page_type(DWORD state);
 const char* get_page_protect(DWORD state);
-bool too_many_results(size_t num_lines);
+bool too_many_results(size_t num_lines, bool precise=true);
 const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* substr, size_t substr_sz);
 char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);

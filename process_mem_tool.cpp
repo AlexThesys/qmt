@@ -372,9 +372,9 @@ static void print_help() {
     puts("lp\t\t\t - list system PIDs");
     puts("lmi\t\t\t - list memory regions info");
     puts("lmic\t\t\t - list committed memory regions info");
-    puts("th\t\t\t - travers process heaps (slow)");
-    puts("the\t\t\t - travers process heaps, calculate entropy (slower)");
-    puts("thb\t\t\t - travers process heaps, list heap blocks (extra slow)");
+    puts("lh\t\t\t - travers process heaps (slow)");
+    puts("lhe\t\t\t - travers process heaps, calculate entropy (slower)");
+    puts("lhb\t\t\t - travers process heaps, list heap blocks (extra slow)");
     puts("********************************\n");
 }
 
@@ -418,17 +418,17 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
                 puts(unknown_command);
                 command = c_continue;
             }
-        } else {
-            puts(unknown_command);
-            command = c_continue;
-        }
-    } else if ((cmd[0] == 't') && (cmd[1] == 'h')) {
-        if (cmd[2] == 0) {
-            command = c_travers_heap;
-        } else if (cmd[2] == 'e') {
-            command = c_travers_heap_calc_entropy;
-        } else if (cmd[2] == 'b') {
-            command = c_travers_heap_blocks;
+        } else if (cmd[1] == 'h') {
+            if (cmd[2] == 0) {
+                command = c_travers_heap;
+            } else if (cmd[2] == 'e') {
+                command = c_travers_heap_calc_entropy;
+            } else if (cmd[2] == 'b') {
+                command = c_travers_heap_blocks;
+            } else {
+                puts(unknown_command);
+                command = c_continue;
+            }
         } else {
             puts(unknown_command);
             command = c_continue;
@@ -775,6 +775,8 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
         puts("====================================");
         entropy_context e_ctx;
         size_t total_size_blocks = 0;
+        uint64_t num_blocks = 0;
+        uint64_t check_num_results = true;
         do {
             HEAPENTRY32 he;
             ZeroMemory(&he, sizeof(HEAPENTRY32));
@@ -793,6 +795,14 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
                 }
                 do {
                     if (list_blocks) {
+                        if (check_num_results && (num_blocks >= TOO_MANY_RESULTS)) {
+                            if (too_many_results(num_blocks, false)) {
+                                CloseHandle(hHeapSnap);
+                                return -1;
+                            }
+                            check_num_results = false;
+                        }
+                        num_blocks++;
                         printf("Start address: 0x%p Block size: 0x%x\n", he.dwAddress, he.dwBlockSize);
                     }
 
@@ -806,7 +816,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
                                 fprintf(stderr, "Buffer allocation faied! Error code: %lu\n", GetLastError());
                                 CloseHandle(process);
                                 CloseHandle(hHeapSnap);
-                                return FALSE;
+                                return -1;
                             }
                         }
                         SIZE_T bytes_read;
@@ -871,7 +881,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
             continue;
         }
         if (check_num_results && (num_regions >= TOO_MANY_RESULTS)) {
-            if (too_many_results(num_regions)) {
+            if (too_many_results(num_regions, false)) {
                 return;
             }
             check_num_results = false;

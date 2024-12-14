@@ -107,11 +107,11 @@ const char* get_page_protect(DWORD state) {
     return result;
 }
 
-bool too_many_results(size_t num_lines) {
+bool too_many_results(size_t num_lines, bool precise) {
     if (num_lines < TOO_MANY_RESULTS) {
         return false;
     }
-    printf("Would you like to display more than %llu results? y/n ", num_lines);
+    printf("Would you like to display%s%llu results? y/n ", (precise ? " " : " more than "), num_lines);
     const char ch = static_cast<char>(getchar());
     while ((getchar()) != '\n'); // flush stdin
     puts("");
