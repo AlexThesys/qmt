@@ -251,9 +251,11 @@ static void print_help() {
     puts("\n*** The program has to be launched in either process or dump inspection mode. ***\n");
     puts("-p || --process\t\t\t\t\t -- launch in process inspection mode");
     puts("-d || --dump\t\t\t\t\t -- launch in dump inspection mode\n");
-    puts("-t=<num_threads> || --threads=<num_threads>\t -- limit the number of OMP threads");
-    puts("-b=<N> || --block_info=<N>\t\t\t\t -- alloc block_info size == (dwAllocationGranularity * N), N=[1-8]");
-    puts("-f || --show-failed-readings\t\t\t -- show the regions, that failed to be read (process mode only)\n");
+    puts("-t=<num_threads> || --threads=<num_threads>\t -- limit the number of worker threads");
+    puts("-b=<N> || --block_info=<N>\t\t\t -- alloc block_info size == (dwAllocationGranularity * N), N=[1-8]");
+    puts("-f || --show-failed-readings\t\t\t -- show the regions, that failed to be read (process mode only)");
+    puts("-h || --help\t\t\t\t\t -- show help (this message)");
+    puts("-v || --version\t\t\t\t\t -- show version\n");
 }
 
 bool parse_cmd_args(int argc, const char** argv) {
@@ -359,6 +361,8 @@ void print_help_common() {
     puts("q | exit\t\t - quit program");
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
+    puts("lmi\t\t\t - list memory regions info");
+    puts("lmic\t\t\t - list committed memory regions info");
 }
 
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char* cmd, char *pattern) {

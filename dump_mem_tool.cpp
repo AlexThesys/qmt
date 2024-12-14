@@ -599,9 +599,7 @@ static void print_help() {
     puts("--------------------------------");
     puts("/xr <pattern>\t\t - search for a hex value in registers");
     puts("ltr\t\t\t - list thread registers");
-    puts("lm\t\t\t - list memory regions");
-    puts("lmi\t\t\t - list memory regions info");
-    puts("lmic\t\t\t - list committed memory regions info");
+    puts("lm\t\t\t - list memory regions (regions to search through)");
     puts("********************************\n");
 }
 

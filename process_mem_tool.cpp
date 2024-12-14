@@ -370,8 +370,6 @@ static void print_help() {
     puts("--------------------------------");
     puts("p <pid>\t\t\t - select PID");
     puts("lp\t\t\t - list system PIDs");
-    puts("lmi\t\t\t - list memory regions info");
-    puts("lmic\t\t\t - list committed memory regions info");
     puts("lh\t\t\t - travers process heaps (slow)");
     puts("lhe\t\t\t - travers process heaps, calculate entropy (slower)");
     puts("lhb\t\t\t - travers process heaps, list heap blocks (extra slow)");
