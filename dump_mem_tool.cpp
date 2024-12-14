@@ -232,7 +232,7 @@ static bool identify_memory_region_type(memory_region_type mem_type, const MINID
 static void search_and_sync(search_context_dump& search_ctx) {
     dump_processing_context& ctx = *search_ctx.ctx;
 
-    const DWORD alloc_granularity = get_alloc_granularity();
+    const uint64_t alloc_granularity = get_alloc_granularity();
 
     auto& mem_info = search_ctx.mem_info;
     const char* pattern = ctx.common.pdata.pattern;
@@ -549,8 +549,8 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
     puts("\n------------------------------------\n");
 
     const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors = (MINIDUMP_MEMORY_DESCRIPTOR64*)((char*)(memory_list)+sizeof(MINIDUMP_MEMORY64_LIST));
-    const DWORD alloc_granularity = get_alloc_granularity();
-    size_t num_regions = memory_list->NumberOfMemoryRanges;
+    const uint64_t alloc_granularity = get_alloc_granularity();
+    const size_t num_regions = memory_list->NumberOfMemoryRanges;
     size_t cumulative_offset = 0;
 
     for (ULONG i = 0; i < num_regions; ++i) {

@@ -154,7 +154,7 @@ static bool identify_memory_region_type(memory_region_type mem_type, const MEMOR
 static void search_and_sync(search_context_proc& search_ctx) {
     const proc_processing_context& ctx = *search_ctx.ctx;
 
-    const DWORD alloc_granularity = get_alloc_granularity();
+    const uint64_t alloc_granularity = get_alloc_granularity();
 
     std::vector<thread_info_proc> thread_info;
     if ((ctx.common.pdata.mem_type == memory_region_type::mrt_stack) || (ctx.common.pdata.mem_type == memory_region_type::mrt_heap)) {

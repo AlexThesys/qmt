@@ -164,10 +164,10 @@ inline bool search_match_less(const search_match& a, const search_match& b) {
     return false;
 }
 
-inline DWORD get_alloc_granularity() {
+inline uint64_t get_alloc_granularity() {
     SYSTEM_INFO sysinfo = { 0 };
     ::GetSystemInfo(&sysinfo);
     const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
     assert(is_pow_2(alloc_granularity));
-    return alloc_granularity;
+    return (uint64_t)alloc_granularity;
 }
