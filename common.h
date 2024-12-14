@@ -22,7 +22,7 @@
 #define MAX_PATTERN_LEN 0x40
 #define MAX_ARG_LEN MAX_PATTERN_LEN
 #define MAX_COMMAND_LEN 0X10
-#define MAX_THREADS 0x10
+#define MAX_THREADS 0x80
 #define TOO_MANY_RESULTS 0x400
 #define DEFAULT_ALLOC_BLOCKS 0x02
 #define MAX_ALLOC_BLOCKS 0x08
@@ -78,7 +78,7 @@ enum hexdump_mode {
 
 struct pattern_data {
     const char* pattern;
-    uint64_t pattern_len;
+    int64_t pattern_len;
     memory_region_type mem_type;
 };
 

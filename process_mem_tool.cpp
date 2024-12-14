@@ -40,7 +40,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
 static void find_pattern(search_context_proc* search_ctx) {
     HANDLE process = search_ctx->process;
     const char* pattern = search_ctx->ctx->common.pdata.pattern;
-    const size_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
+    const int64_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
     auto& matches = search_ctx->common.matches;
     auto& mem_info = search_ctx->mem_info;
     auto& block_info_queue = search_ctx->block_info_queue;
@@ -100,7 +100,7 @@ static void find_pattern(search_context_proc* search_ctx) {
 
         if (bytes_read >= pattern_len) {
             const char* buffer_ptr = buffer;
-            size_t buffer_size = bytes_read;
+            int64_t buffer_size = (int64_t)bytes_read;
 
             while (buffer_size >= pattern_len) {
                 const char* old_buf_ptr = buffer_ptr;
@@ -109,7 +109,7 @@ static void find_pattern(search_context_proc* search_ctx) {
                     break;
                 }
 
-                const size_t buffer_offset = buffer_ptr - buffer;
+                const ptrdiff_t buffer_offset = buffer_ptr - buffer;
                 const char* match = ptr + buffer_offset;
                 search_ctx->common.matches_lock.lock();
                 matches.push_back(search_match{ block.info_id, match });

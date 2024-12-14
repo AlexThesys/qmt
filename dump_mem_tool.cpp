@@ -126,7 +126,7 @@ static bool remap_file(HANDLE file_mapping_handle, LPVOID* file_base) {
 
 static void find_pattern(search_context_dump* search_ctx) {
     const char* pattern = search_ctx->ctx->common.pdata.pattern;
-    const size_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
+    const int64_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
     auto& matches = search_ctx->common.matches;
     auto& mem_info = search_ctx->mem_info;
     auto& block_info_queue = search_ctx->block_info_queue;
@@ -173,7 +173,7 @@ static void find_pattern(search_context_dump* search_ctx) {
 
         if (bytes_to_read >= pattern_len) {
             const char* buffer_ptr = buffer;
-            size_t buffer_size = bytes_to_read;
+            int64_t buffer_size = (int64_t)bytes_to_read;
 
             while (buffer_size >= pattern_len) {
                 const char* old_buf_ptr = buffer_ptr;
@@ -182,7 +182,7 @@ static void find_pattern(search_context_dump* search_ctx) {
                     break;
                 }
 
-                const size_t buffer_offset = buffer_ptr - buffer;
+                const ptrdiff_t buffer_offset = buffer_ptr - buffer;
                 const char* match = (const char*)(r_info.StartOfMemoryRange + buffer_offset + start_offset);
                 search_ctx->common.matches_lock.lock();
                 matches.push_back(search_match{ block.info_id, match });
@@ -236,7 +236,7 @@ static void search_and_sync(search_context_dump& search_ctx) {
 
     auto& mem_info = search_ctx.mem_info;
     const char* pattern = ctx.common.pdata.pattern;
-    const size_t pattern_len = ctx.common.pdata.pattern_len;
+    const int64_t pattern_len = ctx.common.pdata.pattern_len;
 
     // collect memory regions
     size_t num_regions = search_ctx.memory_list->NumberOfMemoryRanges;
@@ -407,7 +407,7 @@ static void search_pattern_in_registers(const dump_processing_context *ctx) {
     match.reg_name[0] = 'R';
     match.reg_name[3] = 0;
     const uint8_t* pattern = (const uint8_t*)ctx->common.pdata.pattern;
-    size_t pattern_len = ctx->common.pdata.pattern_len;
+    int64_t pattern_len = ctx->common.pdata.pattern_len;
     assert(pattern_len <= sizeof(uint64_t));
     for (const thread_info_dump &data : ctx->t_data) {
         if (strstr_u8((const uint8_t*)&data.context->Rax, sizeof(data.context->Rax), pattern, pattern_len)) {

@@ -129,7 +129,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
 
     switch (in_type) {
     case input_type::it_hex_string : {
-        size_t pattern_len = data->pdata.pattern_len;
+        int64_t pattern_len = data->pdata.pattern_len;
         if (pattern_len <= 1) {
             puts("Hex string is shorter than 1 byte.");
             data->type = it_error_type;
@@ -434,7 +434,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         }
         pattern_len -= (ptrdiff_t)(args - cmd);
         memcpy(pattern, args, pattern_len);
-        data->pdata.pattern_len = pattern_len;
+        data->pdata.pattern_len = (int64_t)pattern_len;
 
         parse_input(pattern, data, in_type);
         if (data->type == it_error_type) {
