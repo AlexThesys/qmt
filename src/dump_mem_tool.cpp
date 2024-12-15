@@ -597,7 +597,7 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
 
 static void print_help() {
     puts("--------------------------------");
-    puts("/xr <pattern>\t\t - search for a hex value in registers");
+    puts("/xr <pattern>\t\t - search for a hex value in GP registers");
     puts("ltr\t\t\t - list thread registers");
     puts("lm\t\t\t - list memory regions (regions to search through)");
     puts("********************************\n");

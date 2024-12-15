@@ -413,6 +413,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 break;
                 break;
             case 'r':
+                in_type = input_type::it_hex_value; // temp
                 command = c_search_pattern_in_registers;
                 break;
             default:
@@ -422,7 +423,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         }
 
         if (command == c_search_pattern_in_registers) {
-            if ((in_type != input_type::it_hex_string) || (mem_type != memory_region_type::mrt_all)) {
+            if ((in_type != input_type::it_hex_value) || (mem_type != memory_region_type::mrt_all)) {
                 puts(unknown_command);
                 return c_continue;
             }

@@ -43,6 +43,6 @@
 
 ## ==== Crash Dump Mode Commands ====  
 
-`/xr <pattern>`	- search for a hex value in registers  
+`/xr <pattern>`	- search for a hex value in GP registers  
 `ltr`	- list thread registers  
 `lm`	- list memory regions (regions to search through)  
