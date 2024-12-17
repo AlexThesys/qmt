@@ -18,6 +18,10 @@
 #include "circular_buffer.h"
 #include "semaphore.h"
 
+#ifdef TRACY_ENABLE
+#include "Tracy.hpp"
+#endif // TRACY_ENABLE
+
 #define MAX_BUFFER_SIZE 0x1000
 #define MAX_PATTERN_LEN 0x40
 #define MAX_ARG_LEN MAX_PATTERN_LEN
@@ -29,6 +33,9 @@
 #define MAX_ALLOC_BLOCKS 0x08
 #define SEARCH_DATA_QUEUE_SIZE_POW2 0X04
 #define MAX_BYTE_TO_HEXDUMP 0x1000
+#define NUM_WAITING_DOTS 0x10
+#define NEXT_DOT_INTERVAL 0x10
+#define WAIT_FOR_MS 500
 
 enum input_type {
     it_hex_string,
