@@ -702,16 +702,17 @@ int run_dump_inspection() {
         return -1;
     }
 
-    if (!is_drive_ssd(dump_file_path)) {
-        puts("File is located on an HDD which is going to negatively affect performance.");
-    }
-
     dump_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, file_base, file_mapping_handle };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
         puts("\nOnly x86-64 architecture supported at the moment. Exiting..");
         return -1;
     }
+
+    if (!is_drive_ssd(dump_file_path)) {
+        puts("File is located on an HDD which is going to negatively affect performance.");
+    }
+
     puts("");
     print_help_common();
     print_help();
