@@ -1111,6 +1111,9 @@ static void cache_memory_regions(dump_processing_context* ctx) {
 }
 
 static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx) {
+    if (ctx->ready) {
+        return;
+    }
     printf("Caching memory regions..");
     int line_counter = 0;
     int dot_counter = 0;
