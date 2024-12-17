@@ -69,6 +69,7 @@ static void list_modules(const dump_processing_context* ctx);
 static void list_threads(const dump_processing_context* ctx);
 static void list_thread_registers(const dump_processing_context* ctx);
 static void list_memory_regions_info(const dump_processing_context* ctx, bool show_commited);
+static bool is_drive_ssd(const char* file_path);
 
 static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* file_mapping_handle, LPVOID* file_base) {
     *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -689,14 +690,20 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
 }
 
 int run_dump_inspection() {
+    g_max_threads = IDEAL_THREAD_DUMP;
+
     char dump_file_path[MAX_PATH];
     memset(dump_file_path, 0, sizeof(dump_file_path));
-    printf("\nProvide the path to the dmp file: ");
+    printf("\nProvide the absolute path to the dmp file: ");
     gets_s(dump_file_path, sizeof(dump_file_path));
 
     HANDLE file_handle, file_mapping_handle, file_base;
     if (!map_file(dump_file_path, &file_handle, &file_mapping_handle, &file_base)) {
         return -1;
+    }
+
+    if (!is_drive_ssd(dump_file_path)) {
+        puts("File is located on an HDD which is going to negatively affect performance.");
     }
 
     dump_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, file_base, file_mapping_handle };
@@ -965,5 +972,47 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
 
     if (show_commited) {
         printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions_commited);
+    }
+}
+
+static bool is_drive_ssd(const char* file_path) {
+    char volume_path[MAX_PATH] = {0};
+
+    // Get the root path of the volume from the file path
+    if (!GetVolumePathNameA(file_path, volume_path, MAX_PATH)) {
+        printf("Failed to get volume path for file: %s\nError: %lu\n", file_path, GetLastError());
+        return false;
+    }
+
+    // Construct the device path (e.g., \\.\C:)
+    char device_path[7] = "\\\\.\\A:";
+    device_path[4] = volume_path[0]; // Replace 'A' with the drive letter
+
+    HANDLE device_handle = CreateFileA(device_path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                       NULL, OPEN_EXISTING, 0, NULL);
+    if (device_handle == INVALID_HANDLE_VALUE) {
+        printf("Failed to open device: %s\nError: %lu\n", device_path, GetLastError());
+        return false;
+    }
+
+    STORAGE_PROPERTY_QUERY query = {};
+    query.PropertyId = StorageDeviceSeekPenaltyProperty;
+    query.QueryType = PropertyStandardQuery;
+
+    DEVICE_SEEK_PENALTY_DESCRIPTOR descriptor = {};
+    DWORD bytes_returned = 0;
+
+    BOOL result = DeviceIoControl(device_handle, IOCTL_STORAGE_QUERY_PROPERTY,
+                                  &query, sizeof(query),
+                                  &descriptor, sizeof(descriptor),
+                                  &bytes_returned, NULL);
+
+    CloseHandle(device_handle);
+
+    if (result) {
+        return !descriptor.IncursSeekPenalty; // SSDs have no seek penalty
+    } else {
+        printf("DeviceIoControl failed with error: %lu\n", GetLastError());
+        return false;
     }
 }
