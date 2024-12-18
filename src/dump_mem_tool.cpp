@@ -79,6 +79,8 @@ static bool is_drive_ssd(const char* file_path);
 static void cache_memory_regions(dump_processing_context* ctx);
 static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx);
 static void stop_memory_regions_caching(cache_memory_regions_ctx* ctx, std::thread& t);
+static bool is_elevated();
+static bool purge_standby_list();
 
 static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* file_mapping_handle, LPVOID* file_base) {
     *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN /*FILE_ATTRIBUTE_NORMAL*/, NULL);
@@ -135,8 +137,6 @@ static bool remap_file(HANDLE file_mapping_handle, LPVOID* file_base) {
 }
 
 static void find_pattern(search_context_dump* search_ctx) {
-    ZoneScopedN("find_pattern");
-
     const char* pattern = search_ctx->ctx->common.pdata.pattern;
     const int64_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
     auto& matches = search_ctx->common.matches;
@@ -186,7 +186,6 @@ static void find_pattern(search_context_dump* search_ctx) {
         if (bytes_to_read >= pattern_len) {
             const char* buffer_ptr = buffer;
             int64_t buffer_size = (int64_t)bytes_to_read;
-            ZoneScopedN("find_pattern/search");
 
             while (buffer_size >= pattern_len) {
                 const char* old_buf_ptr = buffer_ptr;
@@ -243,8 +242,6 @@ static bool identify_memory_region_type(memory_region_type mem_type, const MINID
 }
 
 static void search_and_sync(search_context_dump& search_ctx) {
-    ZoneScopedN("search_and_sync");
-
     dump_processing_context& ctx = *search_ctx.ctx;
 
     const uint64_t alloc_granularity = get_alloc_granularity();
@@ -723,9 +720,17 @@ int run_dump_inspection() {
     }
 
     if (!is_drive_ssd(dump_file_path)) {
-        puts("\nFile is located on an HDD which is going to negatively affect performance.\n");
+        puts("\nFile is located on an HDD which is going to negatively affect performance.");
     }
-
+#ifndef DISABLE_STANDBY_LIST_PURGE
+    if (g_purge_standby_pages) {
+        if (is_elevated()) {
+            purge_standby_list();
+        } else {
+            puts("\nStandby pages purging requires elevated priveleges.");
+        }
+    }
+#endif // DISABLE_STANDBY_LIST_PURGE
     std::thread page_caching_thread = std::thread(cache_memory_regions, &ctx);
 
     puts("");
@@ -1060,7 +1065,6 @@ static void cache_memory_regions(dump_processing_context* ctx) {
     const size_t block_size = alloc_granularity * g_num_alloc_blocks;
 
     for (ULONG i = 0; i < num_regions; ++i) {
-        ZoneScopedN("cache_memory_regions");
         const MINIDUMP_MEMORY_DESCRIPTOR64& mem_desc = memory_descriptors[i];
         const uint64_t offset = memory_list->BaseRva + cumulative_offset;
         cumulative_offset += mem_desc.DataSize;
@@ -1135,3 +1139,65 @@ static void stop_memory_regions_caching(cache_memory_regions_ctx* ctx, std::thre
         t.join();
     }
 }
+
+static bool is_elevated() {
+    HANDLE token = nullptr;
+    TOKEN_ELEVATION elevation;
+    DWORD size = 0;
+
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        perror("Failed to get process token.\n");
+        return false;
+    }
+
+    if (!GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size)) {
+        CloseHandle(token);
+        perror("Failed to get token information.\n");
+        return false;
+    }
+
+    CloseHandle(token);
+
+    return elevation.TokenIsElevated;
+}
+
+#ifndef DISABLE_STANDBY_LIST_PURGE
+
+typedef enum _MEMORY_LIST_COMMAND {
+    MemoryCaptureAccessedBits = 0,
+    MemoryPurgeStandbyList = 4,
+    MemoryPurgeLowPriorityStandbyList = 5,
+    MemoryCommandMax
+} MEMORY_LIST_COMMAND;
+
+static bool purge_standby_list() {
+    HMODULE ntdll = LoadLibrary(L"ntdll.dll");
+    if (!ntdll) {
+        perror("Failed to load ntdll.dll\n");
+        return false;
+    }
+
+    typedef NTSTATUS(WINAPI* NtSetSystemInformation_t)(
+        ULONG SystemInformationClass,
+        PVOID SystemInformation,
+        ULONG SystemInformationLength
+        );
+
+    auto NtSetSystemInformation = (NtSetSystemInformation_t)GetProcAddress(ntdll, "NtSetSystemInformation");
+    if (!NtSetSystemInformation) {
+        perror("Failed to find NtSetSystemInformation\n");
+        return false;
+    }
+
+    MEMORY_LIST_COMMAND command = MemoryPurgeStandbyList;
+    constexpr ULONG SystemMemoryListInformation = 0x50;
+    NTSTATUS status = NtSetSystemInformation(SystemMemoryListInformation, &command, sizeof(command));
+    if (status != 0) {
+        printf("Failed to purge standby list, NTSTATUS: 0x%x\n", status);
+        return false;
+    }
+
+    return true;
+}
+
+#endif // DISABLE_STANDBY_LIST_PURGE

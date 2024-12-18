@@ -35,7 +35,9 @@
 #define MAX_BYTE_TO_HEXDUMP 0x1000
 #define NUM_WAITING_DOTS 0x10
 #define NEXT_DOT_INTERVAL 0x10
-#define WAIT_FOR_MS 500
+#define WAIT_FOR_MS 400
+
+#define DISABLE_STANDBY_LIST_PURGE
 
 enum input_type {
     it_hex_string,
@@ -131,6 +133,7 @@ extern int g_max_threads;
 extern LONG64 g_num_alloc_blocks;
 extern int g_show_failed_readings;
 extern inspection_mode g_inspection_mode;
+extern int g_purge_standby_pages;
 
 #define _max(x,y) (x) > (y) ? (x) : (y)
 #define _min(x,y) (x) < (y) ? (x) : (y)

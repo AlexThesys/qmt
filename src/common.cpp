@@ -8,15 +8,16 @@ const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUT
 const char* unknown_command = "Unknown command.";
 const char* command_not_implemented = "Command not implemented.";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
-                                "-p", "--process", "-d", "--dump", "-b=", "--blocks=" };
+                                "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-c", "--clear-standby-list"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.3.0";
+static const char* program_version = "Version 0.3.1";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = MAX_THREADS;
 LONG64 g_num_alloc_blocks = DEFAULT_ALLOC_BLOCKS;
 int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
+int g_purge_standby_pages = 0;
 
 static DWORD clear_screen();
 
@@ -256,6 +257,9 @@ static void print_help() {
     puts("-f || --show-failed-readings\t\t\t -- show the regions, that failed to be read (process mode only)");
     puts("-h || --help\t\t\t\t\t -- show help (this message)");
     puts("-v || --version\t\t\t\t\t -- show version\n");
+#ifndef DISABLE_STANDBY_LIST_PURGE
+    puts("-c || --clear-standby-list\t\t\t\t -- clear standby physical pages (dump mode only)\n");
+#endif // DISABLE_STANDBY_LIST_PURGE
 }
 
 bool parse_cmd_args(int argc, const char** argv) {
@@ -305,6 +309,11 @@ bool parse_cmd_args(int argc, const char** argv) {
                 g_num_alloc_blocks = nblocks;
             }
             selected_options |= 1 << 7;
+        } else if ((argv[i] == strstr(argv[i], cmd_args[14])) || (argv[i] == strstr(argv[i], cmd_args[15]))) { // clear standby pages
+#ifndef DISABLE_STANDBY_LIST_PURGE
+            g_purge_standby_pages = 1;
+            selected_options |= 1 << 8;
+#endif // DISABLE_STANDBY_LIST_PURGE
         }
             // ...
     }
