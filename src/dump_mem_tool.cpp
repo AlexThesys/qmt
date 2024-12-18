@@ -72,7 +72,7 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
 static bool is_drive_ssd(const char* file_path);
 
 static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* file_mapping_handle, LPVOID* file_base) {
-    *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN /*FILE_ATTRIBUTE_NORMAL*/, NULL);
     if (*file_handle == INVALID_HANDLE_VALUE) {
         perror("\nFailed to open the file.\n");
         return false;
@@ -984,7 +984,7 @@ static bool is_drive_ssd(const char* file_path) {
     }
 
     // Construct the device path (e.g., \\.\C:)
-    char device_path[7] = "\\\\.\\A:";
+    char device_path[] = "\\\\.\\A:";
     device_path[4] = volume_path[0]; // Replace 'A' with the drive letter
 
     HANDLE device_handle = CreateFileA(device_path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
