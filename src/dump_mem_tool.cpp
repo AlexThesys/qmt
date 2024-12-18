@@ -24,6 +24,11 @@ struct cpu_info_data {
     // ...
 };
 
+struct cache_memory_regions_ctx {
+    volatile int ready = 0;
+    volatile int interrupt = 0;
+};
+
 struct dump_processing_context {
     common_processing_context common;
     HANDLE file_base;
@@ -31,6 +36,7 @@ struct dump_processing_context {
     std::vector<module_data> m_data;
     std::vector<thread_info_dump> t_data;
     cpu_info_data cpu_info;
+    cache_memory_regions_ctx pages_caching_state;
 };
 
 struct reg_search_result {
@@ -70,6 +76,9 @@ static void list_threads(const dump_processing_context* ctx);
 static void list_thread_registers(const dump_processing_context* ctx);
 static void list_memory_regions_info(const dump_processing_context* ctx, bool show_commited);
 static bool is_drive_ssd(const char* file_path);
+static void cache_memory_regions(dump_processing_context* ctx);
+static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx);
+static void stop_memory_regions_caching(cache_memory_regions_ctx* ctx, std::thread& t);
 
 static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* file_mapping_handle, LPVOID* file_base) {
     *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN /*FILE_ATTRIBUTE_NORMAL*/, NULL);
@@ -126,6 +135,8 @@ static bool remap_file(HANDLE file_mapping_handle, LPVOID* file_base) {
 }
 
 static void find_pattern(search_context_dump* search_ctx) {
+    ZoneScopedN("find_pattern");
+
     const char* pattern = search_ctx->ctx->common.pdata.pattern;
     const int64_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
     auto& matches = search_ctx->common.matches;
@@ -175,6 +186,7 @@ static void find_pattern(search_context_dump* search_ctx) {
         if (bytes_to_read >= pattern_len) {
             const char* buffer_ptr = buffer;
             int64_t buffer_size = (int64_t)bytes_to_read;
+            ZoneScopedN("find_pattern/search");
 
             while (buffer_size >= pattern_len) {
                 const char* old_buf_ptr = buffer_ptr;
@@ -231,6 +243,8 @@ static bool identify_memory_region_type(memory_region_type mem_type, const MINID
 }
 
 static void search_and_sync(search_context_dump& search_ctx) {
+    ZoneScopedN("search_and_sync");
+
     dump_processing_context& ctx = *search_ctx.ctx;
 
     const uint64_t alloc_granularity = get_alloc_granularity();
@@ -654,6 +668,7 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         print_help();
         break;
     case c_search_pattern :
+        wait_for_memory_regions_caching(&ctx->pages_caching_state);
         search_pattern_in_memory((dump_processing_context*)ctx);
         break;
     case c_search_pattern_in_registers :
@@ -708,8 +723,10 @@ int run_dump_inspection() {
     }
 
     if (!is_drive_ssd(dump_file_path)) {
-        puts("File is located on an HDD which is going to negatively affect performance.");
+        puts("\nFile is located on an HDD which is going to negatively affect performance.\n");
     }
+
+    std::thread page_caching_thread = std::thread(cache_memory_regions, &ctx);
 
     puts("");
     print_help_common();
@@ -737,6 +754,8 @@ int run_dump_inspection() {
         }
         execute_command(cmd, &ctx);
     }
+
+    stop_memory_regions_caching(&ctx.pages_caching_state, page_caching_thread);
 
     // epilogue
     UnmapViewOfFile(file_base);
@@ -1013,5 +1032,106 @@ static bool is_drive_ssd(const char* file_path) {
     } else {
         printf("DeviceIoControl failed with error: %lu\n", GetLastError());
         return false;
+    }
+}
+
+static DWORD get_page_size() {
+    SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return system_info.dwPageSize;
+}
+
+static void cache_memory_regions(dump_processing_context* ctx) {
+    const DWORD page_size = get_page_size();
+
+    MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
+    ULONG stream_size = 0;
+    if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
+        perror("Failed to read Memory64ListStream.\n");
+        return;
+    }
+
+    const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors = (MINIDUMP_MEMORY_DESCRIPTOR64*)((char*)(memory_list)+sizeof(MINIDUMP_MEMORY64_LIST));
+
+    const uint64_t alloc_granularity = get_alloc_granularity();
+    size_t num_regions = memory_list->NumberOfMemoryRanges;   
+    size_t cumulative_offset = 0;
+
+    const size_t block_size = alloc_granularity * g_num_alloc_blocks;
+
+    for (ULONG i = 0; i < num_regions; ++i) {
+        ZoneScopedN("cache_memory_regions");
+        const MINIDUMP_MEMORY_DESCRIPTOR64& mem_desc = memory_descriptors[i];
+        const uint64_t offset = memory_list->BaseRva + cumulative_offset;
+        cumulative_offset += mem_desc.DataSize;
+        const SIZE_T region_size = static_cast<SIZE_T>(mem_desc.DataSize);
+
+        uint64_t offset_aligned = offset & ~(alloc_granularity - 1);
+        uint64_t reminder = offset - offset_aligned;
+        size_t total_bytes_to_map = region_size + reminder;
+
+        while (total_bytes_to_map) {
+            size_t bytes_to_map;
+            if (total_bytes_to_map >= block_size) {
+                bytes_to_map = block_size;
+                total_bytes_to_map -= block_size;
+            } else {
+                bytes_to_map = total_bytes_to_map;
+                total_bytes_to_map = 0;
+            }
+            const size_t bytes_to_read = bytes_to_map - reminder;
+
+            const DWORD high = (DWORD)((offset_aligned >> 0x20) & 0xFFFFFFFF);
+            const DWORD low = (DWORD)(offset_aligned & 0xFFFFFFFF);
+            offset_aligned += block_size;
+
+            HANDLE file_base = MapViewOfFile(ctx->file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
+            if (!file_base) {
+                perror("Failed to map view of file.\n");
+                continue;
+            }
+            const char* buffer = ((const char*)file_base + reminder);
+            volatile char dummy = 0;
+            for (int j = 0; j < bytes_to_read; j += page_size) {
+                dummy = buffer[j];
+            }
+
+            UnmapViewOfFile(file_base);
+            reminder = 0;
+
+            if (ctx->pages_caching_state.interrupt) {
+                return;
+            }
+        }
+    }
+
+    ctx->pages_caching_state.ready = 1;
+}
+
+static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx) {
+    if (ctx->ready) {
+        return;
+    }
+    printf("Caching memory regions..");
+    int line_counter = 0;
+    int dot_counter = 0;
+    while (!ctx->ready) {
+        if (dot_counter++ > NEXT_DOT_INTERVAL) {
+            printf(".");
+            dot_counter = 0;
+            if (line_counter++ > NUM_WAITING_DOTS) {
+                puts("");
+                line_counter = 0;
+            }
+        }
+        Sleep(WAIT_FOR_MS);
+    }
+    puts("\n");
+}
+
+static void stop_memory_regions_caching(cache_memory_regions_ctx* ctx, std::thread& t) {
+    ctx->interrupt = true;
+    if (t.joinable()) {
+        t.join();
     }
 }
