@@ -8,7 +8,7 @@ const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUT
 const char* unknown_command = "Unknown command.";
 const char* command_not_implemented = "Command not implemented.";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
-                                "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-c", "--clear-standby-list"};
+                                "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
 static const char* program_version = "Version 0.3.1";
 static const char* program_name = "Quick Memory Tools";
@@ -18,6 +18,7 @@ LONG64 g_num_alloc_blocks = DEFAULT_ALLOC_BLOCKS;
 int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
 int g_purge_standby_pages = 0;
+int g_disable_page_caching = 0;
 
 static DWORD clear_screen();
 
@@ -256,10 +257,12 @@ static void print_help() {
     puts("-b=<N> || --block_info=<N>\t\t\t -- alloc block_info size == (dwAllocationGranularity * N), N=[1-8]");
     puts("-f || --show-failed-readings\t\t\t -- show the regions, that failed to be read (process mode only)");
     puts("-h || --help\t\t\t\t\t -- show help (this message)");
-    puts("-v || --version\t\t\t\t\t -- show version\n");
+    puts("-v || --version\t\t\t\t\t -- show version");
+    puts("-n || --no-page-caching\t\t\t\t -- force disable page caching (dump mode only)");
 #ifndef DISABLE_STANDBY_LIST_PURGE
-    puts("-c || --clear-standby-list\t\t\t\t -- clear standby physical pages (dump mode only)\n");
+    puts("-c || --clear-standby-list\t\t\t -- clear standby physical pages (dump mode only)");
 #endif // DISABLE_STANDBY_LIST_PURGE
+    puts("");
 }
 
 bool parse_cmd_args(int argc, const char** argv) {
@@ -309,10 +312,13 @@ bool parse_cmd_args(int argc, const char** argv) {
                 g_num_alloc_blocks = nblocks;
             }
             selected_options |= 1 << 7;
-        } else if ((argv[i] == strstr(argv[i], cmd_args[14])) || (argv[i] == strstr(argv[i], cmd_args[15]))) { // clear standby pages
+        } else if ((0 == strcmp(argv[i], cmd_args[14])) || (argv[i] == strstr(argv[i], cmd_args[15]))) { // disable page caching
+            g_disable_page_caching = 1;
+            selected_options |= 1 << 8;
+        } else if ((0 == strcmp(argv[i], cmd_args[16])) || (argv[i] == strstr(argv[i], cmd_args[17]))) { // clear standby pages
 #ifndef DISABLE_STANDBY_LIST_PURGE
             g_purge_standby_pages = 1;
-            selected_options |= 1 << 8;
+            selected_options |= 1 << 9;
 #endif // DISABLE_STANDBY_LIST_PURGE
         }
             // ...

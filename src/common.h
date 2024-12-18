@@ -135,6 +135,7 @@ extern LONG64 g_num_alloc_blocks;
 extern int g_show_failed_readings;
 extern inspection_mode g_inspection_mode;
 extern int g_purge_standby_pages;
+extern int g_disable_page_caching;
 
 #define _max(x,y) (x) > (y) ? (x) : (y)
 #define _min(x,y) (x) < (y) ? (x) : (y)

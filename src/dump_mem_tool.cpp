@@ -732,16 +732,20 @@ int run_dump_inspection() {
         }
     }
 #endif // DISABLE_STANDBY_LIST_PURGE
+
+    // pre-cache physical pages
     std::thread page_caching_thread;
-    LARGE_INTEGER file_size; file_size.QuadPart = 0;
-    GetFileSizeEx(file_handle, &file_size);
-    if (0 != file_size.QuadPart) {
-        DWORDLONG available_phys_mem, total_phys_mem;
-        if (get_available_phys_memory(&total_phys_mem, &available_phys_mem)) {
-            const int64_t delta = (int64_t)available_phys_mem - (int64_t)file_size.QuadPart;
-            const int64_t threshold = -(int64_t)total_phys_mem / AVAIL_PHYS_MEM_FACTOR;
-            if (delta > threshold) {
-                page_caching_thread = std::thread(cache_memory_regions, &ctx);
+    if (!g_disable_page_caching) {
+        LARGE_INTEGER file_size; file_size.QuadPart = 0;
+        GetFileSizeEx(file_handle, &file_size);
+        if (0 != file_size.QuadPart) {
+            DWORDLONG available_phys_mem, total_phys_mem;
+            if (get_available_phys_memory(&total_phys_mem, &available_phys_mem)) {
+                const int64_t delta = (int64_t)available_phys_mem - (int64_t)file_size.QuadPart;
+                const int64_t threshold = -(int64_t)total_phys_mem / AVAIL_PHYS_MEM_FACTOR;
+                if (delta > threshold) {
+                    page_caching_thread = std::thread(cache_memory_regions, &ctx);
+                }
             }
         }
     }
@@ -1126,7 +1130,7 @@ static void cache_memory_regions(dump_processing_context* ctx) {
 }
 
 static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx) {
-    if (ctx->ready) {
+    if (g_disable_page_caching || ctx->ready) {
         return;
     }
     printf("Caching memory regions..");
