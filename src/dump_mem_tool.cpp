@@ -690,8 +690,6 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
 }
 
 int run_dump_inspection() {
-    g_max_threads = IDEAL_THREAD_DUMP;
-
     char dump_file_path[MAX_PATH];
     memset(dump_file_path, 0, sizeof(dump_file_path));
     printf("\nProvide the absolute path to the dmp file: ");
