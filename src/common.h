@@ -36,6 +36,7 @@
 #define NUM_WAITING_DOTS 0x10
 #define NEXT_DOT_INTERVAL 0x10
 #define WAIT_FOR_MS 400
+#define AVAIL_PHYS_MEM_FACTOR 0X02 // ?
 
 #define DISABLE_STANDBY_LIST_PURGE
 
@@ -181,4 +182,15 @@ inline uint64_t get_alloc_granularity() {
     const DWORD alloc_granularity = sysinfo.dwAllocationGranularity;
     assert(is_pow_2(alloc_granularity));
     return (uint64_t)alloc_granularity;
+}
+
+inline bool get_available_phys_memory(DWORDLONG *total_pmem, DWORDLONG *available_pmem) {
+    MEMORYSTATUSEX mem_info;
+    mem_info.dwLength = sizeof(mem_info);
+    if (GlobalMemoryStatusEx(&mem_info)) {
+        *total_pmem = mem_info.ullTotalPhys;
+        *available_pmem = mem_info.ullAvailPhys;
+        return true;
+    }
+    return false;
 }

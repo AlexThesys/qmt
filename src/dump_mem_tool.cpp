@@ -722,6 +722,7 @@ int run_dump_inspection() {
     if (!is_drive_ssd(dump_file_path)) {
         puts("\nFile is located on an HDD which is going to negatively affect performance.");
     }
+
 #ifndef DISABLE_STANDBY_LIST_PURGE
     if (g_purge_standby_pages) {
         if (is_elevated()) {
@@ -731,8 +732,20 @@ int run_dump_inspection() {
         }
     }
 #endif // DISABLE_STANDBY_LIST_PURGE
-    std::thread page_caching_thread = std::thread(cache_memory_regions, &ctx);
-
+    std::thread page_caching_thread;
+    LARGE_INTEGER file_size; file_size.QuadPart = 0;
+    GetFileSizeEx(file_handle, &file_size);
+    if (0 != file_size.QuadPart) {
+        DWORDLONG available_phys_mem, total_phys_mem;
+        if (get_available_phys_memory(&total_phys_mem, &available_phys_mem)) {
+            const int64_t delta = (int64_t)available_phys_mem - (int64_t)file_size.QuadPart;
+            const int64_t threshold = -(int64_t)total_phys_mem / AVAIL_PHYS_MEM_FACTOR;
+            if (delta > threshold) {
+                page_caching_thread = std::thread(cache_memory_regions, &ctx);
+            }
+        }
+    }
+  
     puts("");
     print_help_common();
     print_help();
@@ -1163,6 +1176,20 @@ static bool is_elevated() {
 
 #ifndef DISABLE_STANDBY_LIST_PURGE
 
+//void enable_privilege(LPCWSTR privilegeName) {
+//    HANDLE token;
+//    TOKEN_PRIVILEGES tp;
+//
+//    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
+//        LookupPrivilegeValue(nullptr, privilegeName, &tp.Privileges[0].Luid);
+//        tp.PrivilegeCount = 1;
+//        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+//
+//        AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp), nullptr, nullptr);
+//        CloseHandle(token);
+//    }
+//}
+
 typedef enum _MEMORY_LIST_COMMAND {
     MemoryCaptureAccessedBits = 0,
     MemoryPurgeStandbyList = 4,
@@ -1188,6 +1215,8 @@ static bool purge_standby_list() {
         perror("Failed to find NtSetSystemInformation\n");
         return false;
     }
+
+    //enable_privilege(SE_LOCK_MEMORY_NAME);
 
     MEMORY_LIST_COMMAND command = MemoryPurgeStandbyList;
     constexpr ULONG SystemMemoryListInformation = 0x50;
