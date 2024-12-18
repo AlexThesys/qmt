@@ -12,9 +12,9 @@
 `-b=<N>` || `--block_info=<N>`	-- alloc block_info size == (dwAllocationGranularity * N), N=[1-8]  
 `-f` || `--show-failed-readings`	-- show the regions that failed to be read (process mode only)  
 `-h` || `--help`	-- show help (this message)  
-`-v` || `--version`	-- show version
-`-n` || `--no-page-caching`	-- force disable page caching (dump mode only)
-`-c` || `--clear-standby-list`	-- clear standby physical pages (dump mode only)
+`-v` || `--version`	-- show version<br/>
+`-n` || `--no-page-caching`	-- force disable page caching (dump mode only)<br/>
+`-c` || `--clear-standby-list`	-- clear standby physical pages (dump mode only)<br/>
 
 ## ==== Common Commands ====  
 
