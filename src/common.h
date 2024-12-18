@@ -38,7 +38,7 @@
 #define WAIT_FOR_MS 400
 #define AVAIL_PHYS_MEM_FACTOR 0X02 // ?
 
-#define DISABLE_STANDBY_LIST_PURGE
+//#define DISABLE_STANDBY_LIST_PURGE
 
 enum input_type {
     it_hex_string,

@@ -1180,19 +1180,19 @@ static bool is_elevated() {
 
 #ifndef DISABLE_STANDBY_LIST_PURGE
 
-//void enable_privilege(LPCWSTR privilegeName) {
-//    HANDLE token;
-//    TOKEN_PRIVILEGES tp;
-//
-//    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
-//        LookupPrivilegeValue(nullptr, privilegeName, &tp.Privileges[0].Luid);
-//        tp.PrivilegeCount = 1;
-//        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-//
-//        AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp), nullptr, nullptr);
-//        CloseHandle(token);
-//    }
-//}
+void enable_privilege(LPCWSTR privilegeName) {
+    HANDLE token;
+    TOKEN_PRIVILEGES tp;
+
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
+        LookupPrivilegeValue(nullptr, privilegeName, &tp.Privileges[0].Luid);
+        tp.PrivilegeCount = 1;
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+        AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp), nullptr, nullptr);
+        CloseHandle(token);
+    }
+}
 
 typedef enum _MEMORY_LIST_COMMAND {
     MemoryCaptureAccessedBits = 0,
@@ -1202,6 +1202,11 @@ typedef enum _MEMORY_LIST_COMMAND {
 } MEMORY_LIST_COMMAND;
 
 static bool purge_standby_list() {
+    enable_privilege(SE_LOCK_MEMORY_NAME);
+    enable_privilege(SE_PROF_SINGLE_PROCESS_NAME);
+    enable_privilege(SE_DEBUG_NAME);
+    enable_privilege(SE_INCREASE_QUOTA_NAME);
+
     HMODULE ntdll = LoadLibrary(L"ntdll.dll");
     if (!ntdll) {
         perror("Failed to load ntdll.dll\n");
@@ -1219,8 +1224,6 @@ static bool purge_standby_list() {
         perror("Failed to find NtSetSystemInformation\n");
         return false;
     }
-
-    //enable_privilege(SE_LOCK_MEMORY_NAME);
 
     MEMORY_LIST_COMMAND command = MemoryPurgeStandbyList;
     constexpr ULONG SystemMemoryListInformation = 0x50;

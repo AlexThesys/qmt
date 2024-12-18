@@ -14,6 +14,7 @@
 `-h` || `--help`	-- show help (this message)  
 `-v` || `--version`	-- show version
 `-n` || `--no-page-caching`	-- force disable page caching (dump mode only)
+`-c` || `--clear-standby-list`	-- clear standby physical pages (dump mode only)
 
 ## ==== Common Commands ====  
 
