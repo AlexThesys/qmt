@@ -13,7 +13,7 @@ static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that ev
 static const char* program_version = "Version 0.3.1";
 static const char* program_name = "Quick Memory Tools";
 
-int g_max_threads = MAX_THREADS;
+int g_max_threads = INVALID_THREAD_NUM;
 LONG64 g_num_alloc_blocks = DEFAULT_ALLOC_BLOCKS;
 int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
@@ -286,7 +286,7 @@ bool parse_cmd_args(int argc, const char** argv) {
             DWORD num_threads = strtoul(num_t, &end, is_hex(num_t, arg_len) ? 16 : 10);
             if (num_t != end) {
                 num_threads = _max(1, num_threads);
-                g_max_threads = _min(num_threads, g_max_threads);
+                g_max_threads = _min(num_threads, MAX_THREAD_NUM);
             }
             selected_options |= 1 << 3;
         } else if ((0 == strcmp(argv[i], cmd_args[6])) || (0 == strcmp(argv[i], cmd_args[7]))) { // version
@@ -328,6 +328,10 @@ bool parse_cmd_args(int argc, const char** argv) {
     if ((g_inspection_mode == inspection_mode::im_none) || incompatible_options) {
         print_help();
         return false;
+    }
+
+    if (g_max_threads == INVALID_THREAD_NUM) {
+        g_max_threads = (g_inspection_mode == inspection_mode::im_dump) ? IDEAL_THREAD_NUM_DUMP : MAX_THREAD_NUM;
     }
 
     return true;

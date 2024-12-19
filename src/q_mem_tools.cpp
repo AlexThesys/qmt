@@ -9,12 +9,6 @@ int main(int argc, const char** argv) {
         return 1;
     }
 
-    if (g_inspection_mode == inspection_mode::im_dump) {
-        g_max_threads = IDEAL_THREAD_DUMP;
-    } else {
-        g_max_threads = MAX_THREADS;
-    }
-
     if (!parse_cmd_args(argc, argv)) {
         return 0;
     }
