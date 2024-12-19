@@ -744,10 +744,17 @@ int run_dump_inspection() {
                 const int64_t delta = (int64_t)available_phys_mem - (int64_t)file_size.QuadPart;
                 const int64_t threshold = -(int64_t)total_phys_mem / AVAIL_PHYS_MEM_FACTOR;
                 if (delta > threshold) {
+                    if (g_max_threads == INVALID_THREAD_NUM) { // no -t || --threads cmd arg has been passed
+                        g_max_threads = IDEAL_THREAD_NUM_DUMP_W_CACHING;
+                    }
                     page_caching_thread = std::thread(cache_memory_regions, &ctx);
                 }
             }
         }
+    }
+    // file is not being cached - use fewer threads
+    if (g_max_threads == INVALID_THREAD_NUM) { // no -t || --threads cmd arg has been passed
+        g_max_threads = IDEAL_THREAD_NUM_DUMP;
     }
   
     puts("");

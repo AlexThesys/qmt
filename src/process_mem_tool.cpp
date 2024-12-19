@@ -497,6 +497,10 @@ int run_process_inspection() {
     print_help_common();
     print_help();
 
+    if (g_max_threads == INVALID_THREAD_NUM) { // no -t || --threads cmd arg has been passed
+        g_max_threads = MAX_THREAD_NUM; // going to be clamped later
+    }
+
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
 

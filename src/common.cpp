@@ -330,10 +330,6 @@ bool parse_cmd_args(int argc, const char** argv) {
         return false;
     }
 
-    if (g_max_threads == INVALID_THREAD_NUM) {
-        g_max_threads = (g_inspection_mode == inspection_mode::im_dump) ? IDEAL_THREAD_NUM_DUMP : MAX_THREAD_NUM;
-    }
-
     return true;
 }
 
