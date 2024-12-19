@@ -25,7 +25,7 @@ struct cpu_info_data {
 };
 
 struct cache_memory_regions_ctx {
-    volatile int ready = 0;
+    volatile int ready = 1;
     volatile int interrupt = 0;
 };
 
@@ -743,10 +743,11 @@ int run_dump_inspection() {
             if (get_available_phys_memory(&total_phys_mem, &available_phys_mem)) {
                 const int64_t delta = (int64_t)available_phys_mem - (int64_t)file_size.QuadPart;
                 const int64_t threshold = -(int64_t)total_phys_mem / AVAIL_PHYS_MEM_FACTOR;
-                if (delta > threshold) {
+                if ((delta > 0) || (delta > threshold)) {
                     if (g_max_threads == INVALID_THREAD_NUM) { // no -t || --threads cmd arg has been passed
                         g_max_threads = IDEAL_THREAD_NUM_DUMP_W_CACHING;
                     }
+                    ctx.pages_caching_state.ready = 0;
                     page_caching_thread = std::thread(cache_memory_regions, &ctx);
                 }
             }
