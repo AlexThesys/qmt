@@ -1180,7 +1180,7 @@ static bool is_elevated() {
 
 #ifndef DISABLE_STANDBY_LIST_PURGE
 
-void enable_privilege(LPCWSTR privilegeName) {
+void enable_privilege(LPCTSTR privilegeName) {
     HANDLE token;
     TOKEN_PRIVILEGES tp;
 
@@ -1207,7 +1207,7 @@ static bool purge_standby_list() {
     enable_privilege(SE_DEBUG_NAME);
     enable_privilege(SE_INCREASE_QUOTA_NAME);
 
-    HMODULE ntdll = LoadLibrary(L"ntdll.dll");
+    HMODULE ntdll = LoadLibrary(TEXT("ntdll.dll"));
     if (!ntdll) {
         perror("Failed to load ntdll.dll\n");
         return false;
