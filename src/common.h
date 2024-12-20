@@ -101,9 +101,17 @@ struct hexdump_data {
     hexdump_mode mode;
 };
 
+struct redirection_data {
+    FILE* file = nullptr;
+    bool redirect = false;
+    bool append = false;
+    char filepath[MAX_PATH];
+};
+
 struct common_processing_context {
     pattern_data pdata;
     hexdump_data hdata;
+    redirection_data rdata;
 };
 
 struct search_data_info {
@@ -146,14 +154,16 @@ int check_architecture_rt();
 const char* get_page_state(DWORD state);
 void print_page_type(DWORD state);
 const char* get_page_protect(DWORD state);
-bool too_many_results(size_t num_lines, bool precise=true);
+bool too_many_results(size_t num_lines, bool redirected, bool precise=true);
 const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* substr, size_t substr_sz);
 char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);
 void print_help_common();
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* cmd, char* pattern);
-uint64_t prepare_matches(std::vector<search_match>& matches);
+uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
 void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t> &bytes);
+void try_redirect_output_to_file(common_processing_context* ctx);
+void redirect_output_to_stdout(common_processing_context* ctx);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))
@@ -196,4 +206,8 @@ inline bool get_available_phys_memory(DWORDLONG *total_pmem, DWORDLONG *availabl
         return true;
     }
     return false;
+}
+
+inline bool output_redirected(const common_processing_context* ctx) {
+    return ctx->rdata.redirect;
 }

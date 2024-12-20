@@ -5,7 +5,7 @@ extern int run_dump_inspection();
 
 int main(int argc, const char** argv) {
     if (!check_architecture_rt()) {
-        puts("Only x86-64 architecture is supported at the moment!");
+        perror("Only x86-64 architecture is supported at the moment!\n");
         return 1;
     }
 

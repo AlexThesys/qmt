@@ -5,12 +5,12 @@ const char* page_type[] = { "MEM_IMAGE", "MEM_MAPPED", "MEM_PRIVATE" };
 const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUTE_READWRITE", "PAGE_EXECUTE_WRITECOPY", "PAGE_NOACCESS", "PAGE_READONLY",
                                     "PAGE_READWRITE", "PAGE_WRITECOPY", "PAGE_TARGETS_INVALID", "UNKNOWN" };
 
-const char* unknown_command = "Unknown command.";
-const char* command_not_implemented = "Command not implemented.";
+const char* unknown_command = "Unknown command.\n";
+const char* command_not_implemented = "Command not implemented.\n";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.3.2";
+static const char* program_version = "Version 0.3.3";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = INVALID_THREAD_NUM;
@@ -111,8 +111,8 @@ const char* get_page_protect(DWORD state) {
     return result;
 }
 
-bool too_many_results(size_t num_lines, bool precise) {
-    if (num_lines < TOO_MANY_RESULTS) {
+bool too_many_results(size_t num_lines, bool redirected, bool precise) {
+    if (redirected || (num_lines < TOO_MANY_RESULTS)) {
         return false;
     }
     printf("Would you like to display%s%llu results? y/n ", (precise ? " " : " more than "), num_lines);
@@ -124,7 +124,7 @@ bool too_many_results(size_t num_lines, bool precise) {
 
 static void parse_input(char* pattern, search_data_info *data, input_type in_type) {
     if ((data->pdata.pattern_len + 1) > MAX_PATTERN_LEN) {
-        fprintf(stderr, "Pattern exceeded maximum size of %d. Exiting...", MAX_PATTERN_LEN);
+        fprintf(stderr, "Pattern exceeded maximum size of %d. Exiting...\n", MAX_PATTERN_LEN);
         data->type = it_error_type;
         return;
     }
@@ -133,7 +133,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
     case input_type::it_hex_string : {
         int64_t pattern_len = data->pdata.pattern_len;
         if (pattern_len <= 1) {
-            puts("Hex string is shorter than 1 byte.");
+            perror("Hex string is shorter than 1 byte.\n");
             data->type = it_error_type;
             break;
         }
@@ -190,7 +190,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         if (data->pdata.pattern_len <= sizeof(uint64_t)) {
             puts("\nSearching for a hex value...");
         } else {
-            printf("Max supported hex value size: %d bytes!", (int)sizeof(uint64_t));
+            fprintf(stderr, "Max supported hex value size: %d bytes!", (int)sizeof(uint64_t));
             data->type = it_error_type;
         }
         break;
@@ -267,7 +267,7 @@ static void print_help() {
 
 bool parse_cmd_args(int argc, const char** argv) {
     if (argc > (cmd_args_size + 1)) {
-        puts("Too many arguments provided: some will be discarded.");
+        perror("Too many arguments provided: some will be discarded.\n");
     }
 
     uint32_t selected_options = 0;;
@@ -368,6 +368,8 @@ void print_help_common() {
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
     puts("All search commands have optional i|s|h modifiers to limit the search to image | stack | heap");
+    puts("> <file-path>\t\t - redirect output to a file");
+    puts("> stdout\t\t - redirect output to stdout");
     puts("xb <N> @ <address>\t - hexdump N bytes at address");
     puts("xw <N> @ <address>\t - hexdump N words at address");
     puts("xd <N> @ <address>\t - hexdump N dwords at address");
@@ -385,7 +387,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     memset(cmd, 0, sizeof(cmd));
     const char *res = gets_s(cmd, MAX_COMMAND_LEN + MAX_ARG_LEN);
     if (res == nullptr) {
-        puts("Empty input.");
+        perror("Empty input.\n");
         return c_continue;
     }
     if (cmd[0] == 0) {
@@ -395,6 +397,24 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         command = c_quit_program;
     } else if (cmd[0] == '?') {
         command = c_help;
+    } else if (cmd[0] == '>') {
+        size_t cmd_len = strlen(cmd);
+        const char* filepath = skip_to_args(cmd, cmd_len);
+        if (filepath == nullptr) {
+            perror("File path missing.\n");
+            return c_continue;
+        }
+        if ((0 == strcmp(filepath, "stdout"))) {
+            redirect_output_to_stdout(ctx);
+            ctx->rdata.redirect = false;
+            ctx->rdata.append = false;
+        } else {
+            ctx->rdata.redirect = true;
+            ctx->rdata.append = false;
+            memset(ctx->rdata.filepath, 0, sizeof(ctx->rdata.filepath));
+            memcpy_s(ctx->rdata.filepath, sizeof(ctx->rdata.filepath), filepath, strlen(filepath));
+        }
+        command = c_continue;
     } else if (0 == strcmp(cmd, "clear")) {
         clear_screen();
         command = c_continue;
@@ -449,7 +469,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         size_t pattern_len = strlen(cmd);
         char* args = skip_to_args(cmd, pattern_len);
         if (args == nullptr) {
-            puts("Pattern missing.");
+            perror("Pattern missing.\n");
             return c_continue;
         }
         pattern_len -= (ptrdiff_t)(args - cmd);
@@ -458,7 +478,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
 
         parse_input(pattern, data, in_type);
         if (data->type == it_error_type) {
-            puts("Error parsing the pattern. Does it match the command?");
+            perror("Error parsing the pattern. Does it match the command?\n");
             command = c_continue;
         } else {
             ctx->pdata.pattern = data->pdata.pattern;
@@ -475,7 +495,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         } else if (cmd[1] == 'q') {
             mode = hexdump_mode::hm_qwords;
         } else {
-            puts(unknown_command);
+            perror(unknown_command);
             return c_continue;
         }
 
@@ -485,12 +505,12 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         if (res < 2) {
             res = sscanf_s(cmd, "%*s %x @ %p", &size, &p);
             if (res < 2) {
-                puts("Error parsing the input;");
+                perror("Error parsing the input;\n");
                 return c_continue;
             }
         }
         if (((size * mode) > MAX_BYTE_TO_HEXDUMP) || (size <= 0)) {
-            printf("Invalid number of bytes to display. The limit is 0x%x\n", MAX_BYTE_TO_HEXDUMP);
+            fprintf(stderr, "Invalid number of bytes to display. The limit is 0x%x\n", MAX_BYTE_TO_HEXDUMP);
             return c_continue;
         }
 
@@ -506,7 +526,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     return command;
 }
 
-uint64_t prepare_matches(std::vector<search_match>& matches) {
+uint64_t prepare_matches(const common_processing_context* ctx, std::vector<search_match>& matches) {
     uint64_t num_matches = matches.size();
 
     if (!num_matches) {
@@ -514,7 +534,7 @@ uint64_t prepare_matches(std::vector<search_match>& matches) {
         return 0;
     }
 
-    if (too_many_results(num_matches)) {
+    if (too_many_results(num_matches, output_redirected(ctx))) {
         return 0;
     }
 
@@ -642,4 +662,40 @@ static DWORD clear_screen() {
     SetConsoleMode(h_stdout, original_mode);
 
     return 0;
+}
+
+void try_redirect_output_to_file(common_processing_context* ctx) {
+    if (!output_redirected(ctx)) {
+        return;
+    }
+
+    if (ctx->rdata.file) {
+        fflush(ctx->rdata.file);
+        fclose(ctx->rdata.file);
+        ctx->rdata.file = nullptr;
+    }
+    if (0 != freopen_s(&ctx->rdata.file, ctx->rdata.filepath, ctx->rdata.append ? "a" : "w", stdout)) {
+        perror("Failed redirecting the output to the file.\n");
+        ctx->rdata.redirect = false;
+        return;
+    }
+
+    ctx->rdata.append = true;
+}
+
+void redirect_output_to_stdout(common_processing_context* ctx) {
+    if (!output_redirected(ctx)) {
+        return;
+    }
+
+    if (ctx->rdata.file) {
+        fflush(ctx->rdata.file);
+        fclose(ctx->rdata.file);
+        ctx->rdata.file = nullptr;
+    }
+
+    FILE* console = nullptr;
+    if (0 != freopen_s(&console, "CON", "w", stdout)) {
+        perror("*** Failed redirecting the output to stdout.\n");
+    }
 }

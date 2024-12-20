@@ -107,7 +107,7 @@ static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* fi
     MINIDUMP_HEADER* header = (MINIDUMP_HEADER*)*file_base;
     
     if (header->Signature != MINIDUMP_SIGNATURE) {
-        puts("The provided file is not a crash dump! Exiting...");
+        perror("The provided file is not a crash dump! Exiting...\n");
         UnmapViewOfFile(*file_base);
         CloseHandle(*file_mapping_handle);
         CloseHandle(*file_handle);
@@ -116,7 +116,7 @@ static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* fi
 
     const bool is_full_dump = (header->Flags & MiniDumpWithFullMemory) != 0;
     if (!is_full_dump) {
-        puts("Crash dump is not a full dump - no point analysing it. Exiting..");
+        perror("Crash dump is not a full dump - no point analysing it. Exiting..\n");
         UnmapViewOfFile(*file_base);
         CloseHandle(*file_mapping_handle);
         CloseHandle(*file_handle);
@@ -171,7 +171,7 @@ static void find_pattern(search_context_dump* search_ctx) {
         HANDLE file_base = MapViewOfFile(search_ctx->ctx->file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
 
         if (!file_base) {
-            perror("Failed to map view of file.\n");
+            puts("Failed to map view of file.");
             continue;
         }
 
@@ -347,7 +347,7 @@ static void search_and_sync(search_context_dump& search_ctx) {
 }
 
 static void print_search_results(search_context_dump& search_ctx) {
-    const uint64_t num_matches = prepare_matches(search_ctx.common.matches);
+    const uint64_t num_matches = prepare_matches(&search_ctx.ctx->common, search_ctx.common.matches);
     if (!num_matches) {
         return;
     }
@@ -531,7 +531,7 @@ static void search_pattern_in_registers(const dump_processing_context *ctx) {
         puts("*** No matches found. ***");
         return;
     }
-    if (too_many_results(num_matches)) {
+    if (too_many_results(num_matches, output_redirected(&ctx->common))) {
         return;
     }
     printf("*** Total number of matches: %llu ***\n", num_matches);
@@ -585,7 +585,7 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
             const char* buffer = ((const char*)file_base + reminder);
             if (!buffer) {
                 UnmapViewOfFile(file_base);
-                puts("Empty memory region!");
+                perror("Empty memory region!\n");
                 return;
             }
             bytes.reserve(bytes_to_read);
@@ -666,39 +666,65 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         break;
     case c_search_pattern :
         wait_for_memory_regions_caching(&ctx->pages_caching_state);
+        try_redirect_output_to_file(&ctx->common);
         search_pattern_in_memory((dump_processing_context*)ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_search_pattern_in_registers :
+        try_redirect_output_to_file(&ctx->common);
         search_pattern_in_registers(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_print_hexdump:
+        try_redirect_output_to_file(&ctx->common);
         print_hexdump_dump(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_memory_regions :
+        try_redirect_output_to_file(&ctx->common);
         if (!list_memory64_regions(ctx)) {
             list_memory_regions(ctx);
         }
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_memory_regions_info :
+        try_redirect_output_to_file(&ctx->common);
         list_memory_regions_info(ctx, false);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_memory_regions_info_committed:
+        try_redirect_output_to_file(&ctx->common);
         list_memory_regions_info(ctx, true);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_modules:
+        try_redirect_output_to_file(&ctx->common);
         list_modules(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_threads:
+        try_redirect_output_to_file(&ctx->common);
         list_threads(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_thread_registers:
+        try_redirect_output_to_file(&ctx->common);
         list_thread_registers(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     default :
         puts(unknown_command);
         break;
     }
-    puts("====================================\n");
 }
 
 int run_dump_inspection() {
@@ -715,7 +741,7 @@ int run_dump_inspection() {
     dump_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, file_base, file_mapping_handle };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
-        puts("\nOnly x86-64 architecture supported at the moment. Exiting..");
+        perror("\nOnly x86-64 architecture supported at the moment. Exiting..\n");
         return -1;
     }
 
@@ -728,7 +754,7 @@ int run_dump_inspection() {
         if (is_elevated()) {
             purge_standby_list();
         } else {
-            puts("\nStandby pages purging requires elevated priveleges.");
+            perror("\n***Standby pages purging requires elevated priveleges.\n");
         }
     }
 #endif // DISABLE_STANDBY_LIST_PURGE
@@ -854,7 +880,7 @@ static bool list_memory64_regions(const dump_processing_context* ctx) {
 
     // Parse and list memory regions
     const ULONG64 num_memory_regions =  memory_list->NumberOfMemoryRanges;
-    if (too_many_results(num_memory_regions)) {
+    if (too_many_results(num_memory_regions, output_redirected(&ctx->common))) {
         return true;
     }
 
@@ -892,7 +918,7 @@ static bool list_memory_regions(const dump_processing_context* ctx) {
 
     // Parse and list memory regions
     const ULONG64 num_memory_regions = memory_list->NumberOfMemoryRanges;
-    if (too_many_results(num_memory_regions)) {
+    if (too_many_results(num_memory_regions, output_redirected(&ctx->common))) {
         return true;
     }
 
@@ -921,7 +947,7 @@ static bool list_memory_regions(const dump_processing_context* ctx) {
 
 static void list_modules(const dump_processing_context* ctx) {
     const ULONG64 num_modules = ctx->m_data.size();
-    if (too_many_results(num_modules)) {
+    if (too_many_results(num_modules, output_redirected(&ctx->common))) {
         return;
     }
 
@@ -937,7 +963,7 @@ static void list_modules(const dump_processing_context* ctx) {
 static void list_threads(const dump_processing_context* ctx) {
     const ULONG64 num_threads = ctx->t_data.size();
 
-    if (too_many_results(num_threads)) {
+    if (too_many_results(num_threads, output_redirected(&ctx->common))) {
         return;
     }
 
@@ -953,7 +979,7 @@ static void list_threads(const dump_processing_context* ctx) {
 static void list_thread_registers(const dump_processing_context* ctx) {
     const ULONG64 num_threads = ctx->t_data.size();
 
-    if (too_many_results(num_threads)) {
+    if (too_many_results(num_threads, output_redirected(&ctx->common))) {
         return;
     }
 
@@ -984,7 +1010,7 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
     }
 
     const ULONG64 num_entries = memory_info_list->NumberOfEntries;
-    if (too_many_results(num_entries)) {
+    if (too_many_results(num_entries, output_redirected(&ctx->common))) {
         return;
     }
 
@@ -1028,7 +1054,7 @@ static bool is_drive_ssd(const char* file_path) {
 
     // Get the root path of the volume from the file path
     if (!GetVolumePathNameA(file_path, volume_path, MAX_PATH)) {
-        printf("Failed to get volume path for file: %s\nError: %lu\n", file_path, GetLastError());
+        fprintf(stderr, "Failed to get volume path for file: %s\nError: %lu\n", file_path, GetLastError());
         return false;
     }
 
@@ -1039,7 +1065,7 @@ static bool is_drive_ssd(const char* file_path) {
     HANDLE device_handle = CreateFileA(device_path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                        NULL, OPEN_EXISTING, 0, NULL);
     if (device_handle == INVALID_HANDLE_VALUE) {
-        printf("Failed to open device: %s\nError: %lu\n", device_path, GetLastError());
+        fprintf(stderr, "Failed to open device: %s\nError: %lu\n", device_path, GetLastError());
         return false;
     }
 
@@ -1060,7 +1086,7 @@ static bool is_drive_ssd(const char* file_path) {
     if (result) {
         return !descriptor.IncursSeekPenalty; // SSDs have no seek penalty
     } else {
-        printf("DeviceIoControl failed with error: %lu\n", GetLastError());
+        fprintf(stderr, "DeviceIoControl failed with error: %lu\n", GetLastError());
         return false;
     }
 }
@@ -1141,6 +1167,7 @@ static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx) {
     if (g_disable_page_caching || ctx->ready) {
         return;
     }
+    
     printf("Caching memory regions..");
     int line_counter = 0;
     int dot_counter = 0;

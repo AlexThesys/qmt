@@ -32,7 +32,7 @@ struct thread_info_proc {
 static int list_processes();
 static int list_process_modules(DWORD dw_pid);
 static int list_process_threads(DWORD dw_owner_pid);
-static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy);
+static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy, bool redirected);
 static void print_error(TCHAR const* msg);
 static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info);
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
@@ -90,7 +90,7 @@ static void find_pattern(search_context_proc* search_ctx) {
                     r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
                 print_page_type(r_info.Type);
                 if (!res) {
-                    fprintf(stderr, "Failed reading process memory. Error code: %lu\n\n", GetLastError());
+                    printf("Failed reading process memory. Error code: %lu\n\n", GetLastError());
                     continue;
                 } else {
                     printf("Process memory not read in it's entirety! 0x%llx bytes skipped out of 0x%llx\n\n", (bytes_to_read - bytes_read), bytes_to_read);
@@ -237,7 +237,7 @@ static void search_and_sync(search_context_proc& search_ctx) {
 }
 
 static void print_search_results(search_context_proc& search_ctx) {
-    const uint64_t num_matches = prepare_matches(search_ctx.common.matches);
+    const uint64_t num_matches = prepare_matches(&search_ctx.ctx->common, search_ctx.common.matches);
     if (!num_matches) {
         return;
     }
@@ -334,7 +334,7 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
                     SIZE_T bytes_read;
                     const BOOL res = ReadProcessMemory(process, address, buffer, bytes_to_read, &bytes_read);
                     if (!res || !bytes_read) {
-                        puts("Error reading the memory region.");
+                        perror("Error reading the memory region.\n");
                         free(buffer);
                         return;
                     }
@@ -382,14 +382,14 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
         size_t pid_len = strlen(cmd);
         char* args = skip_to_args(cmd, pid_len);
         if (args == nullptr) {
-            puts("PID missing.");
+            perror("PID missing.\n");
             return c_continue;
         }
         pid_len -= (ptrdiff_t)(args - cmd);
         char* end = NULL;
         const DWORD pid = strtoul(args, &end, is_hex(args, pid_len) ? 16 : 10);
         if (args == end) {
-            puts("Invalid PID! Exiting...");
+            perror("Invalid PID! Exiting...\n");
             command = c_quit_program;
         } else {
             ctx->pid = pid;
@@ -409,11 +409,11 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
                 } else if (cmd[3] == 'c') {
                     command = c_list_memory_regions_info_committed;
                 } else {
-                    puts(unknown_command);
+                    perror(unknown_command);
                     command = c_continue;
                 }
             } else {
-                puts(unknown_command);
+                perror(unknown_command);
                 command = c_continue;
             }
         } else if (cmd[1] == 'h') {
@@ -424,15 +424,15 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
             } else if (cmd[2] == 'b') {
                 command = c_travers_heap_blocks;
             } else {
-                puts(unknown_command);
+                perror(unknown_command);
                 command = c_continue;
             }
         } else {
-            puts(unknown_command);
+            perror(unknown_command);
             command = c_continue;
         }
     } else {
-        puts(unknown_command);
+        perror(unknown_command);
         command = c_continue;
     }
     puts("");
@@ -442,7 +442,7 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
 
 static void execute_command(input_command cmd, proc_processing_context *ctx) {
     if ((cmd != c_help) && ((cmd != c_list_pids)) && (ctx->pid == (DWORD)(-1))) {
-        puts("Select the PID first!");
+        perror("Select the PID first!");
         return;
     }
 
@@ -452,44 +452,73 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         print_help();
         break;
     case c_search_pattern :
+        try_redirect_output_to_file(&ctx->common);
         search_pattern_in_memory(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_search_pattern_in_registers :
         puts(command_not_implemented);
         puts("");
         break;
     case c_print_hexdump :
+        try_redirect_output_to_file(&ctx->common);
         print_hexdump_proc(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_pids:
+        try_redirect_output_to_file(&ctx->common);
         list_processes();
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_modules:
+        try_redirect_output_to_file(&ctx->common);
         list_process_modules(ctx->pid);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_threads:
+        try_redirect_output_to_file(&ctx->common);
         list_process_threads(ctx->pid);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_memory_regions_info:
+        try_redirect_output_to_file(&ctx->common);
         list_memory_regions_info(ctx, false);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_list_memory_regions_info_committed:
+        try_redirect_output_to_file(&ctx->common);
         list_memory_regions_info(ctx, true);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_travers_heap:
-        traverse_heap_list(ctx->pid, false, false);
+        try_redirect_output_to_file(&ctx->common);
+        traverse_heap_list(ctx->pid, false, false, output_redirected(&ctx->common));
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_travers_heap_calc_entropy:
-        traverse_heap_list(ctx->pid, false, true);
+        try_redirect_output_to_file(&ctx->common);
+        traverse_heap_list(ctx->pid, false, true, output_redirected(&ctx->common));
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     case c_travers_heap_blocks:
-        traverse_heap_list(ctx->pid, true, false);
+        try_redirect_output_to_file(&ctx->common);
+        traverse_heap_list(ctx->pid, true, false, output_redirected(&ctx->common));
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
         break;
     default :
         puts(unknown_command);
         break;
     }
-    puts("====================================\n");
 }
 
 int run_process_inspection() {
@@ -752,7 +781,7 @@ static double entropy_compute(entropy_context* ctx, size_t size) {
     return entropy;
 }
 
-static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy) {
+static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy, bool redirected) {
     HEAPLIST32 hl;
 
     HANDLE hHeapSnap = CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, dw_pid);
@@ -760,7 +789,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
     hl.dwSize = sizeof(HEAPLIST32);
 
     if (hHeapSnap == INVALID_HANDLE_VALUE) {
-        printf("CreateToolhelp32Snapshot failed (%d)\n", GetLastError());
+        fprintf(stderr, "CreateToolhelp32Snapshot failed (%d)\n", GetLastError());
         return 1;
     }
 
@@ -798,7 +827,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
                 do {
                     if (list_blocks) {
                         if (check_num_results && (num_blocks >= TOO_MANY_RESULTS)) {
-                            if (too_many_results(num_blocks, false)) {
+                            if (too_many_results(num_blocks, redirected, false)) {
                                 CloseHandle(hHeapSnap);
                                 return -1;
                             }
@@ -827,7 +856,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
                             total_size_blocks += he.dwBlockSize;
                         } else {
                             printf("Start address: 0x%p Block size: 0x%x\n", he.dwAddress, he.dwBlockSize);
-                            fprintf(stderr, "Failed reading process memory. Error code: %lu\n", GetLastError());
+                            printf("Failed reading process memory. Error code: %lu\n", GetLastError());
                         }
                     }
 
@@ -873,6 +902,8 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
         return;
     }
 
+    const bool redirected = output_redirected(&ctx->common);
+
     const char* p = NULL;
     MEMORY_BASIC_INFORMATION r_info;
     uint64_t num_regions = 0;
@@ -883,7 +914,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
             continue;
         }
         if (check_num_results && (num_regions >= TOO_MANY_RESULTS)) {
-            if (too_many_results(num_regions, false)) {
+            if (too_many_results(num_regions, redirected, false)) {
                 return;
             }
             check_num_results = false;
@@ -923,5 +954,5 @@ static void print_error(TCHAR const* msg) {
         ((*p == '.') || (*p < 33)));
 
     // Display the message
-    _tprintf(TEXT("\n  WARNING: %s failed with error %d (%s)"), msg, eNum, sysMsg);
+    _ftprintf(stderr, TEXT("\n  WARNING: %s failed with error %d (%s)"), msg, eNum, sysMsg);
 }

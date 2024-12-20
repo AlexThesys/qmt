@@ -1,5 +1,5 @@
 # Quick Memory Tools  
-**Version 0.3.2**  
+**Version 0.3.3**  
 
 ## ==== Command Line Options ====  
 
@@ -27,7 +27,9 @@
 `xb <N> @ <address>`	- hexdump N bytes at address  
 `xw <N> @ <address>`	- hexdump N words at address  
 `xd <N> @ <address>`	- hexdump N dwords at address  
-`xq <N> @ <address>`	- hexdump N qwords at address  
+`xq <N> @ <address>`	- hexdump N qwords at address
+`> <file-path>`         - redirect output to a file
+`> stdout`              - redirect output to a stdout  
 `clear`	- clear screen  
 `q | exit`	- quit program  
 `lM`	- list process modules  
