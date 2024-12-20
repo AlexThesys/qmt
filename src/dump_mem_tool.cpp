@@ -399,6 +399,10 @@ static void search_pattern_in_memory(dump_processing_context *ctx) {
 
     const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors = (MINIDUMP_MEMORY_DESCRIPTOR64*)((char*)(memory_list)+sizeof(MINIDUMP_MEMORY64_LIST));
     
+    if (ctx->common.rdata.redirect) {
+        puts(ctx->common.command);
+        puts("");
+    }
     puts("Searching crash dump memory...");
     puts("\n------------------------------------\n");
 
@@ -526,6 +530,10 @@ static void search_pattern_in_registers(const dump_processing_context *ctx) {
         }
     }
 
+    if (ctx->common.rdata.redirect) {
+        puts(ctx->common.command);
+        puts("");
+    }
     const size_t num_matches = matches.size();
     if (!num_matches) {
         puts("*** No matches found. ***");
@@ -615,7 +623,8 @@ static void print_help() {
     puts("********************************\n");
 }
 
-static input_command parse_command(dump_processing_context *ctx, search_data_info *data, char* cmd, char *pattern) {
+static input_command parse_command(dump_processing_context *ctx, search_data_info *data, char *pattern) {
+    char* cmd = ctx->common.command;
     input_command command;
     if (cmd[0] == 'l') {
         if (cmd[1] == 'M') {
@@ -793,13 +802,14 @@ int run_dump_inspection() {
 
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
-    search_data_info data;
+    ctx.common.command = command;
+    search_data_info sdata;
 
     while (1) {
         printf(">: ");
-        input_command cmd = parse_command_common(&ctx.common, &data, command, pattern);
+        input_command cmd = parse_command_common(&ctx.common, &sdata, pattern);
         if (cmd == input_command::c_not_set) {
-            cmd = parse_command(&ctx, &data, command, pattern);
+            cmd = parse_command(&ctx, &sdata, pattern);
         } else {
             puts("");
         }

@@ -285,6 +285,11 @@ static void search_pattern_in_memory(proc_processing_context* ctx) {
         return;
     }
 
+    if (ctx->common.rdata.redirect) {
+        puts(ctx->common.command);
+        puts("");
+    }
+
     char proc_name[MAX_PATH];
     if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
         printf("Process name: %s\n\n", proc_name);
@@ -376,7 +381,8 @@ static void print_help() {
     puts("********************************\n");
 }
 
-static input_command parse_command(proc_processing_context *ctx, search_data_info *data, char* cmd, char *pattern) {
+static input_command parse_command(proc_processing_context *ctx, search_data_info *data, char *pattern) {
+    char* cmd = ctx->common.command;
     input_command command;
     if (cmd[0] == 'p') {
         size_t pid_len = strlen(cmd);
@@ -530,17 +536,18 @@ int run_process_inspection() {
         g_max_threads = MAX_THREAD_NUM; // going to be clamped later
     }
 
+    search_data_info sdata;
+    proc_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, (DWORD)(-1) };
+
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
-
-    search_data_info data;
-    proc_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, (DWORD)(-1) };
+    ctx.common.command = command;
 
     while (1) {
         printf(">: ");
-        input_command cmd = parse_command_common(&ctx.common, &data, command, pattern);
+        input_command cmd = parse_command_common(&ctx.common, &sdata, pattern);
         if (cmd == input_command::c_not_set) {
-            cmd = parse_command(&ctx, &data, command, pattern);
+            cmd = parse_command(&ctx, &sdata, pattern);
         } else {
             puts("");
         }

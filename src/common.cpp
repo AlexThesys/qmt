@@ -382,7 +382,8 @@ void print_help_common() {
     puts("lmic\t\t\t - list committed memory regions info");
 }
 
-input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char* cmd, char *pattern) {
+input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
+    char* cmd = ctx->command;
     input_command command;
     memset(cmd, 0, sizeof(cmd));
     const char *res = gets_s(cmd, MAX_COMMAND_LEN + MAX_ARG_LEN);

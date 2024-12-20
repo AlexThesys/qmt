@@ -112,6 +112,7 @@ struct common_processing_context {
     pattern_data pdata;
     hexdump_data hdata;
     redirection_data rdata;
+    char* command;
 };
 
 struct search_data_info {
@@ -159,7 +160,7 @@ const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* subst
 char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);
 void print_help_common();
-input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* cmd, char* pattern);
+input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* pattern);
 uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
 void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t> &bytes);
 void try_redirect_output_to_file(common_processing_context* ctx);
