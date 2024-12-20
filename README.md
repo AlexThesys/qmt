@@ -29,7 +29,7 @@
 `xd <N> @ <address>`	- hexdump N dwords at address  
 `xq <N> @ <address>`	- hexdump N qwords at address<br/>
 `> <file-path>`         - redirect output to a file<br/>
-`> stdout`              - redirect output to a stdout  
+`> stdout`              - redirect output to stdout  
 `clear`	- clear screen  
 `q | exit`	- quit program  
 `lM`	- list process modules  
