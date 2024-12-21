@@ -284,7 +284,7 @@ static void search_and_sync(search_context_dump& search_ctx) {
     const size_t block_size = alloc_granularity * g_num_alloc_blocks;
     const size_t bytes_to_read_ideal = block_size + extra_chunk;
 
-    const size_t num_threads = _min(num_regions, _min(std::thread::hardware_concurrency(), g_max_threads));
+    const size_t num_threads = _min(std::thread::hardware_concurrency(), g_max_threads);
     search_ctx.common.workers_sem.set_max_count(num_threads);
     std::vector<char*> buffers(num_threads);
     std::vector<std::thread> workers; workers.reserve(num_threads);
