@@ -123,12 +123,12 @@ static void find_pattern(search_context_proc* search_ctx) {
     free(buffer);
 }
 
-static bool identify_memory_region_type(memory_region_type mem_type, const MEMORY_BASIC_INFORMATION &info, const std::vector<thread_info_proc> &thread_info) {
-    if (mem_type == memory_region_type::mrt_image) {
+static bool identify_memory_region_type(search_scope_type scope_type, const MEMORY_BASIC_INFORMATION &info, const std::vector<thread_info_proc> &thread_info) {
+    if (scope_type == search_scope_type::mrt_image) {
         if (info.Type == MEM_IMAGE) {
             return true;
         }
-    } else if (mem_type == memory_region_type::mrt_stack) {
+    } else if (scope_type == search_scope_type::mrt_stack) {
         if (info.Type == MEM_IMAGE) {
             return false;
         }
@@ -137,7 +137,7 @@ static bool identify_memory_region_type(memory_region_type mem_type, const MEMOR
                 return true;
             }
         }
-    } else if (mem_type == memory_region_type::mrt_heap) {
+    } else if (scope_type == search_scope_type::mrt_heap) {
         if (info.Type == MEM_IMAGE) {
             return false;
         }
@@ -157,7 +157,7 @@ static void search_and_sync(search_context_proc& search_ctx) {
     const uint64_t alloc_granularity = get_alloc_granularity();
 
     std::vector<thread_info_proc> thread_info;
-    if ((ctx.common.pdata.mem_type == memory_region_type::mrt_stack) || (ctx.common.pdata.mem_type == memory_region_type::mrt_heap)) {
+    if ((ctx.common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx.common.pdata.scope_type == search_scope_type::mrt_heap)) {
         gather_thread_info(search_ctx.ctx->pid, thread_info);
     }
 
@@ -170,15 +170,19 @@ static void search_and_sync(search_context_proc& search_ctx) {
     {
         const char* p = NULL;
         MEMORY_BASIC_INFORMATION info;
-        const bool scoped_search = ctx.common.pdata.mem_type != memory_region_type::mrt_all;
+        const bool scoped_search = ctx.common.pdata.scope_type != search_scope_type::mrt_all;
         for (p = NULL; VirtualQueryEx(process, p, &info, sizeof(info)) == sizeof(info); p += info.RegionSize) {
             if (info.State == MEM_COMMIT) {
                 size_t region_size = info.RegionSize;
                 if (region_size < pattern_len) {
                     continue;
                 }
-                if (scoped_search &&!identify_memory_region_type(ctx.common.pdata.mem_type, info, thread_info)) {
-                    continue;
+                if (scoped_search) {
+                    if (ctx.common.pdata.scope_type == search_scope_type::mrt_range) {
+
+                    } else if (!identify_memory_region_type(ctx.common.pdata.scope_type, info, thread_info)) {
+                        continue;
+                    }
                 }
                 mem_info.push_back(info);
                 blocks.push_back(p);
@@ -537,7 +541,7 @@ int run_process_inspection() {
     }
 
     search_data_info sdata;
-    proc_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, (DWORD)(-1) };
+    proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, (DWORD)(-1) };
 
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];

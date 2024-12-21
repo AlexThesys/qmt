@@ -34,7 +34,8 @@
 #define DEFAULT_ALLOC_BLOCKS 0x04
 #define MAX_ALLOC_BLOCKS 0x10
 #define SEARCH_DATA_QUEUE_SIZE_POW2 0X04
-#define MAX_BYTE_TO_HEXDUMP 0x1000
+#define MAX_BYTE_TO_HEXDUMP 0x10000
+#define MAX_RANGE_LENGTH 0xf0000000
 #define NUM_WAITING_DOTS 0x10
 #define NEXT_DOT_INTERVAL 0x10
 #define WAIT_FOR_MS 400
@@ -49,11 +50,13 @@ enum input_type {
     it_error_type,
 };
 
-enum memory_region_type {
+enum search_scope_type {
     mrt_all = 0,
     mrt_image,
     mrt_stack,
     mrt_heap,
+
+    mrt_range,
 };
 
 enum input_command {
@@ -89,10 +92,16 @@ enum hexdump_mode {
     hm_qwords = 8
 };
 
+struct search_range {
+    const char* start;
+    uint64_t length;
+};
+
 struct pattern_data {
     const char* pattern;
     int64_t pattern_len;
-    memory_region_type mem_type;
+    search_scope_type scope_type;
+    search_range range;
 };
 
 struct hexdump_data {

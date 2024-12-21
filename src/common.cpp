@@ -399,7 +399,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     } else if (cmd[0] == '?') {
         command = c_help;
     } else if (cmd[0] == '>') {
-        size_t cmd_len = strlen(cmd);
+        const size_t cmd_len = strlen(cmd);
         const char* filepath = skip_to_args(cmd, cmd_len);
         if (filepath == nullptr) {
             perror("File path missing.\n");
@@ -420,17 +420,26 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         clear_screen();
         command = c_continue;
     } else if (cmd[0] == '/') {
-        constexpr int max_seach_cmd_len = 3;
+        const size_t arg_len = strlen(cmd);
+        char* args = skip_to_args(cmd, arg_len);
+        if (args == nullptr) {
+            perror("Pattern missing.\n");
+            return c_continue;
+        }
+        const size_t pattern_len = arg_len - (ptrdiff_t)(args - cmd);
+
         int cmd_length = 1;
-        for (; cmd_length < max_seach_cmd_len; cmd_length++) {
+        for (; cmd_length < arg_len; cmd_length++) {
             if (cmd[cmd_length] == ' ') break;
         }
+
         // defaults
         input_type in_type = input_type::it_hex_string;
-        memory_region_type mem_type = memory_region_type::mrt_all;
+        search_scope_type scope_type = search_scope_type::mrt_all;
         command = c_search_pattern;
         // modifiers
-        for (int i = 1; i < cmd_length; i++) {
+        bool stop_parsing = false;
+        for (uint64_t i = 1; (i < cmd_length) && !stop_parsing; i++) {
             switch (cmd[i]) {
             case 'x':
                 in_type = input_type::it_hex_value;
@@ -439,19 +448,45 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 in_type = input_type::it_ascii_string;
                 break;
             case 'i':
-                mem_type = memory_region_type::mrt_image;
+                scope_type = search_scope_type::mrt_image;
                 break;
             case 's':
-                mem_type = memory_region_type::mrt_stack;
+                scope_type = search_scope_type::mrt_stack;
                 break;
             case 'h':
-                mem_type = memory_region_type::mrt_heap;
+                scope_type = search_scope_type::mrt_heap;
                 break;
                 break;
             case 'r':
                 in_type = input_type::it_hex_value; // temp
                 command = c_search_pattern_in_registers;
                 break;
+            case '@': {
+                if (scope_type != search_scope_type::mrt_all) {
+                    perror("Ranged search incompatible with i|s|h modifiers.");
+                    return c_continue;
+                }
+
+                int64_t size = 0;
+                void* p = nullptr;
+                int res = sscanf_s(cmd+i, "@%p:%llx", &p, &size);
+                if (res < 2) {
+                    res = sscanf_s(cmd+i, "@%p:lld", &p, &size);
+                    if (res < 2) {
+                        perror("Error parsing the input;\n");
+                        return c_continue;
+                    }
+                }
+                if ((size > MAX_RANGE_LENGTH) || (size <= 0)) {
+                    fprintf(stderr, "Invalid number of bytes to display. The limit is 0x%x\n", MAX_BYTE_TO_HEXDUMP);
+                    return c_continue;
+                }
+                ctx->pdata.range.start = (const char*)p;
+                ctx->pdata.range.length = size;
+                scope_type = search_scope_type::mrt_range;
+                stop_parsing = true;
+                break;
+            }
             default:
                 puts(unknown_command);
                 return c_continue;
@@ -459,21 +494,14 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         }
 
         if (command == c_search_pattern_in_registers) {
-            if ((in_type != input_type::it_hex_value) || (mem_type != memory_region_type::mrt_all)) {
+            if ((in_type != input_type::it_hex_value) || (scope_type != search_scope_type::mrt_all)) {
                 puts(unknown_command);
                 return c_continue;
             }
         }
 
-        ctx->pdata.mem_type = mem_type;
+        ctx->pdata.scope_type = scope_type;
         memset(pattern, 0, MAX_PATTERN_LEN);
-        size_t pattern_len = strlen(cmd);
-        char* args = skip_to_args(cmd, pattern_len);
-        if (args == nullptr) {
-            perror("Pattern missing.\n");
-            return c_continue;
-        }
-        pattern_len -= (ptrdiff_t)(args - cmd);
         memcpy(pattern, args, pattern_len);
         data->pdata.pattern_len = (int64_t)pattern_len;
 

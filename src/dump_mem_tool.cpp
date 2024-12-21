@@ -208,22 +208,22 @@ static void find_pattern(search_context_dump* search_ctx) {
     }
 }
 
-static bool identify_memory_region_type(memory_region_type mem_type, const MINIDUMP_MEMORY_DESCRIPTOR64 &info, const dump_processing_context &ctx) {
-    if (mem_type == memory_region_type::mrt_image) {
+static bool identify_memory_region_type(search_scope_type scope_type, const MINIDUMP_MEMORY_DESCRIPTOR64 &info, const dump_processing_context &ctx) {
+    if (scope_type == search_scope_type::mrt_image) {
         for (size_t m = 0, sz = ctx.m_data.size(); m < sz; m++) {
             const module_data& mdata = ctx.m_data[m];
             if (((ULONG64)mdata.base_of_image <= info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (info.StartOfMemoryRange + info.DataSize))) {
                 return true;
             }
         }
-    } else if (mem_type == memory_region_type::mrt_stack) {
+    } else if (scope_type == search_scope_type::mrt_stack) {
         for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
             const thread_info_dump& tdata = ctx.t_data[t];
             if (((ULONG64)tdata.stack_base >= info.StartOfMemoryRange) && (tdata.context->Rsp <= (info.StartOfMemoryRange + info.DataSize))) {
                 return true;
             }
         }
-    } else if (mem_type == memory_region_type::mrt_heap) {
+    } else if (scope_type == search_scope_type::mrt_heap) {
         for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
             const thread_info_dump& tdata = ctx.t_data[t];
             if (((ULONG64)tdata.stack_base >= info.StartOfMemoryRange) && (tdata.context->Rsp <= (info.StartOfMemoryRange + info.DataSize))) {
@@ -255,7 +255,7 @@ static void search_and_sync(search_context_dump& search_ctx) {
     mem_info.reserve(num_regions);
     std::vector<uint64_t> rva_offsets; rva_offsets.reserve(num_regions);
     size_t cumulative_offset = 0;
-    const bool scoped_search = ctx.common.pdata.mem_type != memory_region_type::mrt_all;
+    const bool scoped_search = ctx.common.pdata.scope_type != search_scope_type::mrt_all;
     for (ULONG i = 0; i < num_regions; ++i) {
         const MINIDUMP_MEMORY_DESCRIPTOR64& mem_desc = search_ctx.memory_descriptors[i];
         const uint64_t offset = search_ctx.memory_list->BaseRva + cumulative_offset;
@@ -264,8 +264,12 @@ static void search_and_sync(search_context_dump& search_ctx) {
         if (region_size < pattern_len) {
             continue;
         }
-        if (scoped_search && !identify_memory_region_type(ctx.common.pdata.mem_type, mem_desc, ctx)) {
-            continue;
+        if (scoped_search) {
+            if (ctx.common.pdata.scope_type == search_scope_type::mrt_range) {
+
+            } else if (!identify_memory_region_type(ctx.common.pdata.scope_type, mem_desc, ctx)) {
+                continue;
+            }
         }
         mem_info.push_back(mem_desc);
         rva_offsets.push_back(offset);
@@ -747,7 +751,7 @@ int run_dump_inspection() {
         return -1;
     }
 
-    dump_processing_context ctx = { { pattern_data{ nullptr, 0, memory_region_type::mrt_all } }, file_base, file_mapping_handle };
+    dump_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, file_base, file_mapping_handle };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
         perror("\nOnly x86-64 architecture supported at the moment. Exiting..\n");
