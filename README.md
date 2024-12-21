@@ -22,7 +22,8 @@
 `/ <pattern>`	- search for a hex string  
 `/x <pattern>`	- search for a hex value (1-8 bytes wide)  
 `/a <pattern>`	- search for an ASCII string  
-*All search commands have optional `i|s|h` modifiers to limit the search to image | stack | heap*  
+  *  All search commands have optional i|s|h modifiers to limit the search to image | stack | heap<br/>
+  ** Alternatively search could be ranged (e.g. `/@<start>:<length> <pattern>` )
 
 `xb <N> @ <address>`	- hexdump N bytes at address  
 `xw <N> @ <address>`	- hexdump N words at address  
