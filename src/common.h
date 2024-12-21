@@ -221,3 +221,10 @@ inline bool get_available_phys_memory(DWORDLONG *total_pmem, DWORDLONG *availabl
 inline bool output_redirected(const common_processing_context* ctx) {
     return ctx->rdata.redirect;
 }
+
+inline bool ranges_intersect(uint64_t a_start, uint64_t a_length, uint64_t b_start, uint64_t b_length) {
+    const uint64_t a_end = a_start + a_length;
+    const uint64_t b_end = b_start + b_length;
+
+    return !(a_end < b_start || b_end < a_start);
+}

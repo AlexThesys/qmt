@@ -144,6 +144,10 @@ static void find_pattern(search_context_dump* search_ctx) {
     auto& block_info_queue = search_ctx->block_info_queue;
     auto& exit_workers = search_ctx->common.exit_workers;
 
+    const bool ranged_search = search_ctx->ctx->common.pdata.scope_type == search_scope_type::mrt_range;
+    const char* range_start = search_ctx->ctx->common.pdata.range.start;
+    const char* range_end = search_ctx->ctx->common.pdata.range.start + search_ctx->ctx->common.pdata.range.length;
+
     block_info_dump block;
     while (1) {
         int exit = false;
@@ -196,10 +200,11 @@ static void find_pattern(search_context_dump* search_ctx) {
 
                 const ptrdiff_t buffer_offset = buffer_ptr - buffer;
                 const char* match = (const char*)(r_info.StartOfMemoryRange + buffer_offset + start_offset);
-                search_ctx->common.matches_lock.lock();
-                matches.push_back(search_match{ block.info_id, match });
-                search_ctx->common.matches_lock.unlock();
-
+                if (!ranged_search || ((match >= range_start) && ((match < range_end)))) {
+                    search_ctx->common.matches_lock.lock();
+                    matches.push_back(search_match{ block.info_id, match });
+                    search_ctx->common.matches_lock.unlock();
+                }
                 buffer_ptr++;
                 buffer_size -= (buffer_ptr - old_buf_ptr);
             }
@@ -249,6 +254,7 @@ static void search_and_sync(search_context_dump& search_ctx) {
     auto& mem_info = search_ctx.mem_info;
     const char* pattern = ctx.common.pdata.pattern;
     const int64_t pattern_len = ctx.common.pdata.pattern_len;
+    const bool ranged_search = ctx.common.pdata.scope_type == search_scope_type::mrt_range;
 
     // collect memory regions
     size_t num_regions = search_ctx.memory_list->NumberOfMemoryRanges;
@@ -265,8 +271,10 @@ static void search_and_sync(search_context_dump& search_ctx) {
             continue;
         }
         if (scoped_search) {
-            if (ctx.common.pdata.scope_type == search_scope_type::mrt_range) {
-
+            if (ranged_search) {
+                if (!ranges_intersect((uint64_t)mem_desc.StartOfMemoryRange, mem_desc.DataSize, (uint64_t)ctx.common.pdata.range.start, ctx.common.pdata.range.length)) {
+                    continue;
+                }
             } else if (!identify_memory_region_type(ctx.common.pdata.scope_type, mem_desc, ctx)) {
                 continue;
             }
@@ -325,11 +333,11 @@ static void search_and_sync(search_context_dump& search_ctx) {
             const DWORD high = (DWORD)((offset_aligned >> 0x20) & 0xFFFFFFFF);
             const DWORD low = (DWORD)(offset_aligned & 0xFFFFFFFF);
             offset_aligned += block_size;
-
-            block_info_dump b = { start_offset, bytes_to_map, bytes_to_read, low, high, i };
-            block_info_queue.try_push(b);
-            search_ctx.common.workers_sem.signal();
-
+            if (!ranged_search || ranges_intersect(mem_desc.StartOfMemoryRange + start_offset, bytes_to_read, (uint64_t)ctx.common.pdata.range.start, ctx.common.pdata.range.length)) {
+                block_info_dump b = { start_offset, bytes_to_map, bytes_to_read, low, high, i };
+                block_info_queue.try_push(b);
+                search_ctx.common.workers_sem.signal();
+            }
             start_offset += bytes_to_read - extra_chunk;
             reminder = 0;
         }

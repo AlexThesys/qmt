@@ -367,7 +367,8 @@ void print_help_common() {
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
-    puts("All search commands have optional i|s|h modifiers to limit the search to image | stack | heap");
+    puts("  *  All search commands have optional i|s|h modifiers to limit the search to image | stack | heap");
+    puts("  ** Alternatively search could be ranged (e.g. /@<start>:<length> <pattern> )");
     puts("> <file-path>\t\t - redirect output to a file");
     puts("> stdout\t\t - redirect output to stdout");
     puts("xb <N> @ <address>\t - hexdump N bytes at address");

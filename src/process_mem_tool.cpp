@@ -48,6 +48,11 @@ static void find_pattern(search_context_proc* search_ctx) {
 
     char* buffer = (char*)malloc(search_ctx->block_size_ideal);
     block_info_proc block;
+
+    const bool ranged_search = search_ctx->ctx->common.pdata.scope_type == search_scope_type::mrt_range;
+    const char* range_start = search_ctx->ctx->common.pdata.range.start;
+    const char* range_end = search_ctx->ctx->common.pdata.range.start + search_ctx->ctx->common.pdata.range.length;
+
     while (1) {
         int exit = false;
         while (!block_info_queue.try_pop(block)) {
@@ -111,10 +116,11 @@ static void find_pattern(search_context_proc* search_ctx) {
 
                 const ptrdiff_t buffer_offset = buffer_ptr - buffer;
                 const char* match = ptr + buffer_offset;
-                search_ctx->common.matches_lock.lock();
-                matches.push_back(search_match{ block.info_id, match });
-                search_ctx->common.matches_lock.unlock();
-
+                if (!ranged_search || ((match >= range_start) && ((match < range_end)))) {
+                    search_ctx->common.matches_lock.lock();
+                    matches.push_back(search_match{ block.info_id, match });
+                    search_ctx->common.matches_lock.unlock();
+                }
                 buffer_ptr++;
                 buffer_size -= (buffer_ptr - old_buf_ptr);
             }
@@ -165,6 +171,7 @@ static void search_and_sync(search_context_proc& search_ctx) {
     auto& mem_info = search_ctx.mem_info;
     const HANDLE process = search_ctx.process;
     const size_t pattern_len = ctx.common.pdata.pattern_len;
+    const bool ranged_search = ctx.common.pdata.scope_type == search_scope_type::mrt_range;
 
     std::vector<const char*> blocks;
     {
@@ -178,8 +185,10 @@ static void search_and_sync(search_context_proc& search_ctx) {
                     continue;
                 }
                 if (scoped_search) {
-                    if (ctx.common.pdata.scope_type == search_scope_type::mrt_range) {
-
+                    if (ranged_search) {
+                        if (!ranges_intersect((uint64_t)info.BaseAddress, info.RegionSize, (uint64_t)ctx.common.pdata.range.start, ctx.common.pdata.range.length)) {
+                            continue;
+                        }
                     } else if (!identify_memory_region_type(ctx.common.pdata.scope_type, info, thread_info)) {
                         continue;
                     }
@@ -224,9 +233,12 @@ static void search_and_sync(search_context_proc& search_ctx) {
                 bytes_to_read = region_size;
                 region_size = 0;
             }
-            block_info_proc b = { p + bytes_offset, bytes_to_read, i };
-            block_info_queue.try_push(b);
-            search_ctx.common.workers_sem.signal();
+            const char* block_start = p + bytes_offset;
+            if (!ranged_search || ranges_intersect((uint64_t)block_start, bytes_to_read, (uint64_t)ctx.common.pdata.range.start, ctx.common.pdata.range.length)) {
+                block_info_proc b = { block_start, bytes_to_read, i };
+                block_info_queue.try_push(b);
+                search_ctx.common.workers_sem.signal();
+            }
             bytes_offset += block_size;
         }
     }
