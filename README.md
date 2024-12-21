@@ -22,7 +22,7 @@
 `/ <pattern>`	- search for a hex string  
 `/x <pattern>`	- search for a hex value (1-8 bytes wide)  
 `/a <pattern>`	- search for an ASCII string  
-  *  All search commands have optional `:i`||`:s`||`:h` modifiers to limit the search to image || stack || heap<br/>
+  *  All search commands have optional `:i`|`:s`|`:o` modifiers to limit the search to image || stack || other<br/>
   ** Alternatively search could be ranged (e.g. `/@<start>:<length> <pattern>` )
 
 `xb <N> @ <address>`	- hexdump N bytes at address  
@@ -37,6 +37,7 @@
 `lt`	- list process threads  
 `lmi`	- list memory regions info  
 `lmic`	- list committed memory regions info  
+  *  Memory listing commands have optional `:i`|`:s`|`:o` modifiers to display only image || stack || other<br/>
 
 ## ==== Process Mode Commands ====  
 
