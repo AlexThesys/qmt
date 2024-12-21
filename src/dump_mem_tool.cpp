@@ -228,7 +228,7 @@ static bool identify_memory_region_type(search_scope_type scope_type, const MINI
                 return true;
             }
         }
-    } else if (scope_type == search_scope_type::mrt_else) {
+    } else if (scope_type == search_scope_type::mrt_other) {
         for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
             const thread_info_dump& tdata = ctx.t_data[t];
             if (((ULONG64)tdata.stack_base >= info.StartOfMemoryRange) && (tdata.context->Rsp <= (info.StartOfMemoryRange + info.DataSize))) {
@@ -261,7 +261,7 @@ static bool identify_memory_region_type(search_scope_type scope_type, const MINI
                 return true;
             }
         }
-    } else if (scope_type == search_scope_type::mrt_else) {
+    } else if (scope_type == search_scope_type::mrt_other) {
         for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
             const thread_info_dump& tdata = ctx.t_data[t];
             if (((ULONG64)tdata.stack_base >= info.BaseAddress) && (tdata.context->Rsp <= (info.BaseAddress + info.RegionSize))) {
@@ -712,8 +712,8 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
                             case 's':
                                 scope_type = search_scope_type::mrt_stack;
                                 break;
-                            case 'e':
-                                scope_type = search_scope_type::mrt_else;
+                            case 'o':
+                                scope_type = search_scope_type::mrt_other;
                                 break;
                             default:
                                 puts(unknown_command);

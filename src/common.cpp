@@ -367,7 +367,7 @@ void print_help_common() {
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
-    puts("  *  All search commands have optional :i|:s|:e modifiers to limit the search to image || stack || else");
+    puts("  *  All search commands have optional :i|:s|:o modifiers to limit the search to image || stack || other");
     puts("  ** Alternatively search could be ranged (e.g. /@<start>:<length> <pattern> )");
     puts("> <file-path>\t\t - redirect output to a file");
     puts("> stdout\t\t - redirect output to stdout");
@@ -381,7 +381,7 @@ void print_help_common() {
     puts("lt\t\t\t - list process threads");
     puts("lmi\t\t\t - list memory regions info");
     puts("lmic\t\t\t - list committed memory regions info");
-    puts("  *  Memory listing commands have optional :i|:s|:e modifiers to display only image || stack || else");
+    puts("  *  Memory listing commands have optional :i|:s|:o modifiers to display only image || stack || other");
 
 }
 
@@ -460,7 +460,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                         scope_type = search_scope_type::mrt_stack;
                         break;
                     case 'h':
-                        scope_type = search_scope_type::mrt_else;
+                        scope_type = search_scope_type::mrt_other;
                         break;
                     default:
                         puts(unknown_command);

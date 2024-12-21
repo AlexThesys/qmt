@@ -143,7 +143,7 @@ static bool identify_memory_region_type(search_scope_type scope_type, const MEMO
                 return true;
             }
         }
-    } else if (scope_type == search_scope_type::mrt_else) {
+    } else if (scope_type == search_scope_type::mrt_other) {
         if (info.Type == MEM_IMAGE) {
             return false;
         }
@@ -163,7 +163,7 @@ static void search_and_sync(search_context_proc& search_ctx) {
     const uint64_t alloc_granularity = get_alloc_granularity();
 
     std::vector<thread_info_proc> thread_info;
-    if ((ctx.common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx.common.pdata.scope_type == search_scope_type::mrt_else)) {
+    if ((ctx.common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx.common.pdata.scope_type == search_scope_type::mrt_other)) {
         gather_thread_info(search_ctx.ctx->pid, thread_info);
     }
 
@@ -451,8 +451,8 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
                             case 's':
                                 scope_type = search_scope_type::mrt_stack;
                                 break;
-                            case 'e':
-                                scope_type = search_scope_type::mrt_else;
+                            case 'o':
+                                scope_type = search_scope_type::mrt_other;
                                 break;
                             default:
                                 puts(unknown_command);
@@ -969,7 +969,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
     const bool scoped_search = ctx->common.pdata.scope_type != search_scope_type::mrt_all;
 
     std::vector<thread_info_proc> thread_info;
-    if ((ctx->common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx->common.pdata.scope_type == search_scope_type::mrt_else)) {
+    if ((ctx->common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx->common.pdata.scope_type == search_scope_type::mrt_other)) {
         gather_thread_info(ctx->pid, thread_info);
     }
 

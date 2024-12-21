@@ -54,7 +54,7 @@ enum search_scope_type {
     mrt_all = 0,
     mrt_image,
     mrt_stack,
-    mrt_else,
+    mrt_other,
 
     mrt_range,
 };
