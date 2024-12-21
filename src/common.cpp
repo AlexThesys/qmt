@@ -367,7 +367,7 @@ void print_help_common() {
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
-    puts("  *  All search commands have optional i|s|h modifiers to limit the search to image | stack | heap");
+    puts("  *  All search commands have optional :i|:s|:h modifiers to limit the search to image | stack | heap");
     puts("  ** Alternatively search could be ranged (e.g. /@<start>:<length> <pattern> )");
     puts("> <file-path>\t\t - redirect output to a file");
     puts("> stdout\t\t - redirect output to stdout");
@@ -448,15 +448,27 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             case 'a':
                 in_type = input_type::it_ascii_string;
                 break;
-            case 'i':
-                scope_type = search_scope_type::mrt_image;
-                break;
-            case 's':
-                scope_type = search_scope_type::mrt_stack;
-                break;
-            case 'h':
-                scope_type = search_scope_type::mrt_heap;
-                break;
+            case ':':
+                if ((i + 1) < cmd_length) {
+                    switch (cmd[i+1]) {
+                    case 'i' :
+                        scope_type = search_scope_type::mrt_image;
+                        break;
+                    case 's' :
+                        scope_type = search_scope_type::mrt_stack;
+                        break;
+                    case 'h':
+                        scope_type = search_scope_type::mrt_heap;
+                        break;
+                    default:
+                        puts(unknown_command);
+                        return c_continue;
+                    }
+                } else {
+                    puts(unknown_command);
+                    return c_continue;
+                }
+                stop_parsing = true;
                 break;
             case 'r':
                 in_type = input_type::it_hex_value; // temp
