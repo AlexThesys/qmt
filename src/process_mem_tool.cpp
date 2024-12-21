@@ -343,7 +343,7 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
                     SIZE_T bytes_read;
                     const BOOL res = ReadProcessMemory(process, address, buffer, bytes_to_read, &bytes_read);
                     if (!res || !bytes_read) {
-                        perror("Error reading the memory region.\n");
+                        fprintf(stderr, "Error reading the memory region.\n");
                         free(buffer);
                         return;
                     }
@@ -392,14 +392,14 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
         size_t pid_len = strlen(cmd);
         char* args = skip_to_args(cmd, pid_len);
         if (args == nullptr) {
-            perror("PID missing.\n");
+            fprintf(stderr, "PID missing.\n");
             return c_continue;
         }
         pid_len -= (ptrdiff_t)(args - cmd);
         char* end = NULL;
         const DWORD pid = strtoul(args, &end, is_hex(args, pid_len) ? 16 : 10);
         if (args == end) {
-            perror("Invalid PID! Exiting...\n");
+            fprintf(stderr, "Invalid PID! Exiting...\n");
             command = c_quit_program;
         } else {
             ctx->pid = pid;
@@ -419,11 +419,11 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
                 } else if (cmd[3] == 'c') {
                     command = c_list_memory_regions_info_committed;
                 } else {
-                    perror(unknown_command);
+                    fprintf(stderr, unknown_command);
                     command = c_continue;
                 }
             } else {
-                perror(unknown_command);
+                fprintf(stderr, unknown_command);
                 command = c_continue;
             }
         } else if (cmd[1] == 'h') {
@@ -434,15 +434,15 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
             } else if (cmd[2] == 'b') {
                 command = c_travers_heap_blocks;
             } else {
-                perror(unknown_command);
+                fprintf(stderr, unknown_command);
                 command = c_continue;
             }
         } else {
-            perror(unknown_command);
+            fprintf(stderr, unknown_command);
             command = c_continue;
         }
     } else {
-        perror(unknown_command);
+        fprintf(stderr, unknown_command);
         command = c_continue;
     }
     puts("");
@@ -452,7 +452,7 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
 
 static void execute_command(input_command cmd, proc_processing_context *ctx) {
     if ((cmd != c_help) && ((cmd != c_list_pids)) && (ctx->pid == (DWORD)(-1))) {
-        perror("Select the PID first!");
+        fprintf(stderr, "Select the PID first!");
         return;
     }
 

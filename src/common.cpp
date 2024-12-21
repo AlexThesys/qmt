@@ -133,7 +133,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
     case input_type::it_hex_string : {
         int64_t pattern_len = data->pdata.pattern_len;
         if (pattern_len <= 1) {
-            perror("Hex string is shorter than 1 byte.\n");
+            fprintf(stderr, "Hex string is shorter than 1 byte.\n");
             data->type = it_error_type;
             break;
         }
@@ -267,7 +267,7 @@ static void print_help() {
 
 bool parse_cmd_args(int argc, const char** argv) {
     if (argc > (cmd_args_size + 1)) {
-        perror("Too many arguments provided: some will be discarded.\n");
+        fprintf(stderr, "Too many arguments provided: some will be discarded.\n");
     }
 
     uint32_t selected_options = 0;;
@@ -388,7 +388,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     memset(cmd, 0, sizeof(cmd));
     const char *res = gets_s(cmd, MAX_COMMAND_LEN + MAX_ARG_LEN);
     if (res == nullptr) {
-        perror("Empty input.\n");
+        fprintf(stderr, "Empty input.\n");
         return c_continue;
     }
     if (cmd[0] == 0) {
@@ -402,7 +402,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         const size_t cmd_len = strlen(cmd);
         const char* filepath = skip_to_args(cmd, cmd_len);
         if (filepath == nullptr) {
-            perror("File path missing.\n");
+            fprintf(stderr, "File path missing.\n");
             return c_continue;
         }
         if ((0 == strcmp(filepath, "stdout"))) {
@@ -423,7 +423,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         const size_t arg_len = strlen(cmd);
         char* args = skip_to_args(cmd, arg_len);
         if (args == nullptr) {
-            perror("Pattern missing.\n");
+            fprintf(stderr, "Pattern missing.\n");
             return c_continue;
         }
         const size_t pattern_len = arg_len - (ptrdiff_t)(args - cmd);
@@ -463,7 +463,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 break;
             case '@': {
                 if (scope_type != search_scope_type::mrt_all) {
-                    perror("Ranged search incompatible with i|s|h modifiers.");
+                    fprintf(stderr, "Ranged search incompatible with i|s|h modifiers.");
                     return c_continue;
                 }
 
@@ -473,7 +473,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 if (res < 2) {
                     res = sscanf_s(cmd+i, "@%p:lld", &p, &size);
                     if (res < 2) {
-                        perror("Error parsing the input;\n");
+                        fprintf(stderr, "Error parsing the input;\n");
                         return c_continue;
                     }
                 }
@@ -507,7 +507,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
 
         parse_input(pattern, data, in_type);
         if (data->type == it_error_type) {
-            perror("Error parsing the pattern. Does it match the command?\n");
+            fprintf(stderr, "Error parsing the pattern. Does it match the command?\n");
             command = c_continue;
         } else {
             ctx->pdata.pattern = data->pdata.pattern;
@@ -524,7 +524,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         } else if (cmd[1] == 'q') {
             mode = hexdump_mode::hm_qwords;
         } else {
-            perror(unknown_command);
+            fprintf(stderr, unknown_command);
             return c_continue;
         }
 
@@ -534,7 +534,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         if (res < 2) {
             res = sscanf_s(cmd, "%*s %x @ %p", &size, &p);
             if (res < 2) {
-                perror("Error parsing the input;\n");
+                fprintf(stderr, "Error parsing the input;\n");
                 return c_continue;
             }
         }
@@ -704,7 +704,7 @@ void try_redirect_output_to_file(common_processing_context* ctx) {
         ctx->rdata.file = nullptr;
     }
     if (0 != freopen_s(&ctx->rdata.file, ctx->rdata.filepath, ctx->rdata.append ? "a" : "w", stdout)) {
-        perror("Failed redirecting the output to the file.\n");
+        fprintf(stderr, "Failed redirecting the output to the file.\n");
         ctx->rdata.redirect = false;
         return;
     }
@@ -725,6 +725,6 @@ void redirect_output_to_stdout(common_processing_context* ctx) {
 
     FILE* console = nullptr;
     if (0 != freopen_s(&console, "CON", "w", stdout)) {
-        perror("*** Failed redirecting the output to stdout.\n");
+        fprintf(stderr, "*** Failed redirecting the output to stdout.\n");
     }
 }

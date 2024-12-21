@@ -85,20 +85,20 @@ static bool purge_standby_list();
 static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* file_mapping_handle, LPVOID* file_base) {
     *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN /*FILE_ATTRIBUTE_NORMAL*/, NULL);
     if (*file_handle == INVALID_HANDLE_VALUE) {
-        perror("\nFailed to open the file.\n");
+        fprintf(stderr, "\nFailed to open the file.\n");
         return false;
     }
 
     *file_mapping_handle = CreateFileMapping(*file_handle, NULL, PAGE_READONLY, 0, 0, NULL);
     if (!*file_mapping_handle) {
-        perror("\nFailed to create file mapping.\n");
+        fprintf(stderr, "\nFailed to create file mapping.\n");
         CloseHandle(*file_handle);
         return false;
     }
 
     *file_base = MapViewOfFile(*file_mapping_handle, FILE_MAP_READ, 0, 0, 0);
     if (!*file_base) {
-        perror("\nFailed to map view of file.\n");
+        fprintf(stderr, "\nFailed to map view of file.\n");
         CloseHandle(*file_mapping_handle);
         CloseHandle(*file_handle);
         return false;
@@ -107,7 +107,7 @@ static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* fi
     MINIDUMP_HEADER* header = (MINIDUMP_HEADER*)*file_base;
     
     if (header->Signature != MINIDUMP_SIGNATURE) {
-        perror("The provided file is not a crash dump! Exiting...\n");
+        fprintf(stderr, "The provided file is not a crash dump! Exiting...\n");
         UnmapViewOfFile(*file_base);
         CloseHandle(*file_mapping_handle);
         CloseHandle(*file_handle);
@@ -116,7 +116,7 @@ static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* fi
 
     const bool is_full_dump = (header->Flags & MiniDumpWithFullMemory) != 0;
     if (!is_full_dump) {
-        perror("Crash dump is not a full dump - no point analysing it. Exiting..\n");
+        fprintf(stderr, "Crash dump is not a full dump - no point analysing it. Exiting..\n");
         UnmapViewOfFile(*file_base);
         CloseHandle(*file_mapping_handle);
         CloseHandle(*file_handle);
@@ -130,7 +130,7 @@ static bool remap_file(HANDLE file_mapping_handle, LPVOID* file_base) {
     UnmapViewOfFile(*file_base);
     *file_base = MapViewOfFile(file_mapping_handle, FILE_MAP_READ, 0, 0, 0);
     if (!*file_base) {
-        perror("Failed to map view of file.\n");
+        fprintf(stderr, "Failed to map view of file.\n");
         return false;
     }
     return true;
@@ -397,7 +397,7 @@ static void search_pattern_in_memory(dump_processing_context *ctx) {
     MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
-        perror("Failed to read Memory64ListStream.\n");
+        fprintf(stderr, "Failed to read Memory64ListStream.\n");
         return;
     }
 
@@ -567,7 +567,7 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
     MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
-        perror("Failed to read Memory64ListStream.\n");
+        fprintf(stderr, "Failed to read Memory64ListStream.\n");
         return;
     }
     puts("\n------------------------------------\n");
@@ -597,7 +597,7 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
             const char* buffer = ((const char*)file_base + reminder);
             if (!buffer) {
                 UnmapViewOfFile(file_base);
-                perror("Empty memory region!\n");
+                fprintf(stderr, "Empty memory region!\n");
                 return;
             }
             bytes.reserve(bytes_to_read);
@@ -754,7 +754,7 @@ int run_dump_inspection() {
     dump_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, file_base, file_mapping_handle };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
-        perror("\nOnly x86-64 architecture supported at the moment. Exiting..\n");
+        fprintf(stderr, "\nOnly x86-64 architecture supported at the moment. Exiting..\n");
         return -1;
     }
 
@@ -767,7 +767,7 @@ int run_dump_inspection() {
         if (is_elevated()) {
             purge_standby_list();
         } else {
-            perror("\n***Standby pages purging requires elevated priveleges.\n");
+            fprintf(stderr, "\n***Standby pages purging requires elevated priveleges.\n");
         }
     }
 #endif // DISABLE_STANDBY_LIST_PURGE
@@ -840,7 +840,7 @@ static void get_system_info(dump_processing_context* ctx) {
     ULONG stream_size = 0;
     ctx->cpu_info.processor_architecture = PROCESSOR_ARCHITECTURE_UNKNOWN;
     if (!MiniDumpReadDumpStream(ctx->file_base, SystemInfoStream, nullptr, reinterpret_cast<void**>(&system_info), &stream_size)) {
-        perror("Failed to read SystemInfoStream.\n");
+        fprintf(stderr, "Failed to read SystemInfoStream.\n");
     }
     ctx->cpu_info.processor_architecture = system_info->ProcessorArchitecture;
 }
@@ -850,7 +850,7 @@ static void gather_modules(dump_processing_context *ctx) {
     MINIDUMP_MODULE_LIST* module_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, ModuleListStream, nullptr, reinterpret_cast<void**>(&module_list), &stream_size)) {
-        perror("Failed to read ModuleListStream.\n");
+        fprintf(stderr, "Failed to read ModuleListStream.\n");
         return;
     }
 
@@ -868,7 +868,7 @@ static void gather_threads(dump_processing_context *ctx) {
     MINIDUMP_THREAD_LIST* thread_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, ThreadListStream, nullptr, reinterpret_cast<void**>(&thread_list), &stream_size)) {
-        perror("Failed to read ThreadListStream.\n");
+        fprintf(stderr, "Failed to read ThreadListStream.\n");
         return;
     }
 
@@ -888,7 +888,7 @@ static bool list_memory64_regions(const dump_processing_context* ctx) {
     MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
-        perror("Failed to read Memory64ListStream.\n");
+        fprintf(stderr, "Failed to read Memory64ListStream.\n");
         return false;
     }
 
@@ -926,7 +926,7 @@ static bool list_memory_regions(const dump_processing_context* ctx) {
     MINIDUMP_MEMORY_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, MemoryListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
-        perror("Failed to read MemoryListStream.\n");
+        fprintf(stderr, "Failed to read MemoryListStream.\n");
         return false;
     }
 
@@ -1019,7 +1019,7 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
     MINIDUMP_MEMORY_INFO_LIST* memory_info_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, MemoryInfoListStream, nullptr, reinterpret_cast<void**>(&memory_info_list), &stream_size)) {
-        perror("Failed to read MemoryInfoListStream.\n");
+        fprintf(stderr, "Failed to read MemoryInfoListStream.\n");
         return;
     }
 
@@ -1117,7 +1117,7 @@ static void cache_memory_regions(dump_processing_context* ctx) {
     MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
     ULONG stream_size = 0;
     if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
-        perror("Failed to read Memory64ListStream.\n");
+        fprintf(stderr, "Failed to read Memory64ListStream.\n");
         return;
     }
 
@@ -1156,7 +1156,7 @@ static void cache_memory_regions(dump_processing_context* ctx) {
 
             HANDLE file_base = MapViewOfFile(ctx->file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
             if (!file_base) {
-                perror("Failed to map view of file.\n");
+                fprintf(stderr, "Failed to map view of file.\n");
                 continue;
             }
             const char* buffer = ((const char*)file_base + reminder);
@@ -1212,13 +1212,13 @@ static bool is_elevated() {
     DWORD size = 0;
 
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
-        perror("Failed to get process token.\n");
+        fprintf(stderr, "Failed to get process token.\n");
         return false;
     }
 
     if (!GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size)) {
         CloseHandle(token);
-        perror("Failed to get token information.\n");
+        fprintf(stderr, "Failed to get token information.\n");
         return false;
     }
 
@@ -1258,7 +1258,7 @@ static bool purge_standby_list() {
 
     HMODULE ntdll = LoadLibrary(TEXT("ntdll.dll"));
     if (!ntdll) {
-        perror("Failed to load ntdll.dll\n");
+        fprintf(stderr, "Failed to load ntdll.dll\n");
         return false;
     }
 
@@ -1270,7 +1270,7 @@ static bool purge_standby_list() {
 
     auto NtSetSystemInformation = (NtSetSystemInformation_t)GetProcAddress(ntdll, "NtSetSystemInformation");
     if (!NtSetSystemInformation) {
-        perror("Failed to find NtSetSystemInformation\n");
+        fprintf(stderr, "Failed to find NtSetSystemInformation\n");
         return false;
     }
 
