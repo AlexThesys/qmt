@@ -367,7 +367,7 @@ void print_help_common() {
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
-    puts("  *  All search commands have optional :i|:s|:h modifiers to limit the search to image | stack | heap");
+    puts("  *  All search commands have optional :i|:s|:e modifiers to limit the search to image || stack || else");
     puts("  ** Alternatively search could be ranged (e.g. /@<start>:<length> <pattern> )");
     puts("> <file-path>\t\t - redirect output to a file");
     puts("> stdout\t\t - redirect output to stdout");
@@ -381,6 +381,8 @@ void print_help_common() {
     puts("lt\t\t\t - list process threads");
     puts("lmi\t\t\t - list memory regions info");
     puts("lmic\t\t\t - list committed memory regions info");
+    puts("  *  Memory listing commands have optional :i|:s|:e modifiers to display only image || stack || else");
+
 }
 
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -394,7 +396,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     }
     if (cmd[0] == 0) {
         command = c_continue;
-    } else if ((cmd[0] == 'q') || (cmd[0] == 'Q') || (0 == strcmp(cmd, "exit"))) {
+    } else if ((cmd[0] == 'q') || (0 == strcmp(cmd, "exit"))) {
         puts("\n==== Exiting... ====");
         command = c_quit_program;
     } else if (cmd[0] == '?') {
@@ -458,7 +460,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                         scope_type = search_scope_type::mrt_stack;
                         break;
                     case 'h':
-                        scope_type = search_scope_type::mrt_heap;
+                        scope_type = search_scope_type::mrt_else;
                         break;
                     default:
                         puts(unknown_command);

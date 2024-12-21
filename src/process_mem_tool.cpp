@@ -143,7 +143,7 @@ static bool identify_memory_region_type(search_scope_type scope_type, const MEMO
                 return true;
             }
         }
-    } else if (scope_type == search_scope_type::mrt_heap) {
+    } else if (scope_type == search_scope_type::mrt_else) {
         if (info.Type == MEM_IMAGE) {
             return false;
         }
@@ -163,7 +163,7 @@ static void search_and_sync(search_context_proc& search_ctx) {
     const uint64_t alloc_granularity = get_alloc_granularity();
 
     std::vector<thread_info_proc> thread_info;
-    if ((ctx.common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx.common.pdata.scope_type == search_scope_type::mrt_heap)) {
+    if ((ctx.common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx.common.pdata.scope_type == search_scope_type::mrt_else)) {
         gather_thread_info(search_ctx.ctx->pid, thread_info);
     }
 
@@ -400,6 +400,13 @@ static void print_help() {
 static input_command parse_command(proc_processing_context *ctx, search_data_info *data, char *pattern) {
     char* cmd = ctx->common.command;
     input_command command;
+
+    const size_t arg_len = strlen(cmd);
+    int cmd_length = 1;
+    for (; cmd_length < arg_len; cmd_length++) {
+        if (cmd[cmd_length] == ' ') break;
+    }
+
     if (cmd[0] == 'p') {
         size_t pid_len = strlen(cmd);
         char* args = skip_to_args(cmd, pid_len);
@@ -426,14 +433,42 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
             command = c_list_threads;
         } else if (cmd[1] == 'm') {
             if (cmd[2] == 'i') {
-                if (cmd[3] == 0) {
-                    command = c_list_memory_regions_info;
-                } else if (cmd[3] == 'c') {
-                    command = c_list_memory_regions_info_committed;
-                } else {
-                    fprintf(stderr, unknown_command);
-                    command = c_continue;
+                // defaults
+                command = c_list_memory_regions_info;
+                search_scope_type scope_type = search_scope_type::mrt_all;
+                bool stop_parsing = false;
+                for (int i = 3; (i < cmd_length) && !stop_parsing; i++) {
+                    switch (cmd[i]) {
+                    case 'c':
+                        command = c_list_memory_regions_info_committed;
+                        break;
+                    case ':': {
+                        if ((i + 1) < cmd_length) {
+                            switch (cmd[i + 1]) {
+                            case 'i':
+                                scope_type = search_scope_type::mrt_image;
+                                break;
+                            case 's':
+                                scope_type = search_scope_type::mrt_stack;
+                                break;
+                            case 'e':
+                                scope_type = search_scope_type::mrt_else;
+                                break;
+                            default:
+                                puts(unknown_command);
+                                return c_continue;
+                            }
+                        }
+                        stop_parsing = true;
+                        break;
+                    }
+                    default:
+                        fprintf(stderr, unknown_command);
+                        return c_continue;
+                    }
                 }
+                ctx->common.pdata.scope_type = scope_type;
+
             } else {
                 fprintf(stderr, unknown_command);
                 command = c_continue;
@@ -931,11 +966,23 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
     MEMORY_BASIC_INFORMATION r_info;
     uint64_t num_regions = 0;
     uint64_t check_num_results = true;
+    const bool scoped_search = ctx->common.pdata.scope_type != search_scope_type::mrt_all;
+
+    std::vector<thread_info_proc> thread_info;
+    if ((ctx->common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx->common.pdata.scope_type == search_scope_type::mrt_else)) {
+        gather_thread_info(ctx->pid, thread_info);
+    }
+
     puts("====================================\n");
     for (p = NULL; VirtualQueryEx(process, p, &r_info, sizeof(r_info)) == sizeof(r_info); p += r_info.RegionSize) {
         if (show_commited && (r_info.State != MEM_COMMIT)) {
             continue;
         }
+
+        if (scoped_search && !identify_memory_region_type(ctx->common.pdata.scope_type, r_info, thread_info)) {
+            continue;
+        }
+
         if (check_num_results && (num_regions >= TOO_MANY_RESULTS)) {
             if (too_many_results(num_regions, redirected, false)) {
                 return;

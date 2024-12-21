@@ -228,7 +228,7 @@ static bool identify_memory_region_type(search_scope_type scope_type, const MINI
                 return true;
             }
         }
-    } else if (scope_type == search_scope_type::mrt_heap) {
+    } else if (scope_type == search_scope_type::mrt_else) {
         for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
             const thread_info_dump& tdata = ctx.t_data[t];
             if (((ULONG64)tdata.stack_base >= info.StartOfMemoryRange) && (tdata.context->Rsp <= (info.StartOfMemoryRange + info.DataSize))) {
@@ -238,6 +238,39 @@ static bool identify_memory_region_type(search_scope_type scope_type, const MINI
         for (size_t m = 0, sz = ctx.m_data.size(); m < sz; m++) {
             const module_data& mdata = ctx.m_data[m];
             if (((ULONG64)mdata.base_of_image <= info.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (info.StartOfMemoryRange + info.DataSize))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool identify_memory_region_type(search_scope_type scope_type, const MINIDUMP_MEMORY_INFO& info, const dump_processing_context &ctx) {
+    if (scope_type == search_scope_type::mrt_image) {
+        for (size_t m = 0, sz = ctx.m_data.size(); m < sz; m++) {
+            const module_data& mdata = ctx.m_data[m];
+            if (((ULONG64)mdata.base_of_image <= info.BaseAddress) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (info.BaseAddress + info.RegionSize))) {
+                return true;
+            }
+        }
+    } else if (scope_type == search_scope_type::mrt_stack) {
+        for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
+            const thread_info_dump& tdata = ctx.t_data[t];
+            if (((ULONG64)tdata.stack_base >= info.BaseAddress) && (tdata.context->Rsp <= (info.BaseAddress + info.RegionSize))) {
+                return true;
+            }
+        }
+    } else if (scope_type == search_scope_type::mrt_else) {
+        for (size_t t = 0, sz = ctx.t_data.size(); t < sz; t++) {
+            const thread_info_dump& tdata = ctx.t_data[t];
+            if (((ULONG64)tdata.stack_base >= info.BaseAddress) && (tdata.context->Rsp <= (info.BaseAddress + info.RegionSize))) {
+                return false;
+            }
+        }
+        for (size_t m = 0, sz = ctx.m_data.size(); m < sz; m++) {
+            const module_data& mdata = ctx.m_data[m];
+            if (((ULONG64)mdata.base_of_image <= info.BaseAddress) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (info.BaseAddress + info.RegionSize))) {
                 return false;
             }
         }
@@ -638,6 +671,13 @@ static void print_help() {
 static input_command parse_command(dump_processing_context *ctx, search_data_info *data, char *pattern) {
     char* cmd = ctx->common.command;
     input_command command;
+
+    const size_t arg_len = strlen(cmd);
+    int cmd_length = 1;
+    for (; cmd_length < arg_len; cmd_length++) {
+        if (cmd[cmd_length] == ' ') break;
+    }
+
     if (cmd[0] == 'l') {
         if (cmd[1] == 'M') {
             command = c_list_modules;
@@ -654,14 +694,42 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
             if (cmd[2] == 0) {
                 command = c_list_memory_regions;
             } else if (cmd[2] == 'i') {
-                if (cmd[3] == 0) {
-                    command = c_list_memory_regions_info;
-                } else if (cmd[3] == 'c') {
-                    command = c_list_memory_regions_info_committed;
-                } else {
-                    puts(unknown_command);
-                    command = c_continue;
+                // defaults
+                command = c_list_memory_regions_info;
+                search_scope_type scope_type = search_scope_type::mrt_all;
+                bool stop_parsing = false;
+                for (int i = 3; (i < cmd_length) && !stop_parsing; i++) {
+                    switch (cmd[i]) {
+                    case 'c':
+                        command = c_list_memory_regions_info_committed;
+                        break;
+                    case ':': {
+                        if ((i + 1) < cmd_length) {
+                            switch (cmd[i + 1]) {
+                            case 'i':
+                                scope_type = search_scope_type::mrt_image;
+                                break;
+                            case 's':
+                                scope_type = search_scope_type::mrt_stack;
+                                break;
+                            case 'e':
+                                scope_type = search_scope_type::mrt_else;
+                                break;
+                            default:
+                                puts(unknown_command);
+                                return c_continue;
+                            }
+                        }
+                        stop_parsing = true;
+                        break;
+                    }
+                    default:
+                        fprintf(stderr, unknown_command);
+                        return c_continue;
+                    }
                 }
+                ctx->common.pdata.scope_type = scope_type;
+
             } else {
                 puts(unknown_command);
                 command = c_continue;
@@ -1036,20 +1104,22 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
         return;
     }
 
-    if (!show_commited) {
-        printf("*** Number of Memory Info Entries: %llu ***\n\n", num_entries);
-    }
-
     const MINIDUMP_MEMORY_INFO* memory_info = (MINIDUMP_MEMORY_INFO*)((char*)(memory_info_list) + sizeof(MINIDUMP_MEMORY_INFO_LIST));
+    const bool scoped_search = ctx->common.pdata.scope_type != search_scope_type::mrt_all;
 
     ULONG prev_module = (ULONG)(-1);
-    uint64_t num_regions_commited = 0;
+    uint64_t num_regions = 0;
     for (ULONG i = 0; i < memory_info_list->NumberOfEntries; ++i) {
         const MINIDUMP_MEMORY_INFO& mem_info = memory_info[i];
         if (show_commited && (mem_info.State != MEM_COMMIT)) {
             continue;
         }
-        num_regions_commited++;
+
+        if (scoped_search && !identify_memory_region_type(ctx->common.pdata.scope_type, mem_info, *ctx)) {
+            continue;
+        }
+
+        num_regions++;
         for (size_t m = 0, sz = ctx->m_data.size(); m < sz; m++) {
             const module_data& mdata = ctx->m_data[m];
             if ((prev_module != m) && ((ULONG64)mdata.base_of_image <= mem_info.BaseAddress) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (mem_info.BaseAddress + mem_info.RegionSize))) {
@@ -1065,10 +1135,7 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
         print_page_type(mem_info.Type);
     }
     puts("");
-
-    if (show_commited) {
-        printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions_commited);
-    }
+    printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions);
 }
 
 static bool is_drive_ssd(const char* file_path) {
