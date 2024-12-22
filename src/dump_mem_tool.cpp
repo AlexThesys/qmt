@@ -75,6 +75,7 @@ static void list_modules(const dump_processing_context* ctx);
 static void list_threads(const dump_processing_context* ctx);
 static void list_thread_registers(const dump_processing_context* ctx);
 static void list_memory_regions_info(const dump_processing_context* ctx, bool show_commited);
+static void list_handle_descriptors(const dump_processing_context* ctx);
 static bool is_drive_ssd(const char* file_path);
 static void cache_memory_regions(dump_processing_context* ctx);
 static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx);
@@ -665,6 +666,7 @@ static void print_help() {
     puts("/xr <pattern>\t\t - search for a hex value in GP registers");
     puts("ltr\t\t\t - list thread registers");
     puts("lm\t\t\t - list memory regions (regions to search through)");
+    puts("lh\t\t\t - list handles");
     puts("********************************\n");
 }
 
@@ -693,7 +695,8 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
         } else if (cmd[1] == 'm') {
             if (cmd[2] == 0) {
                 command = c_list_memory_regions;
-            } else if (cmd[2] == 'i') {
+            }
+            else if (cmd[2] == 'i') {
                 // defaults
                 command = c_list_memory_regions_info;
                 search_scope_type scope_type = search_scope_type::mrt_all;
@@ -734,6 +737,8 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
                 puts(unknown_command);
                 command = c_continue;
             }
+        } else if (cmd[1] == 'h') {
+            command = c_list_handles;
         } else {
             puts(unknown_command);
             command = c_continue;
@@ -807,6 +812,12 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
     case c_list_thread_registers:
         try_redirect_output_to_file(&ctx->common);
         list_thread_registers(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_list_handles:
+        try_redirect_output_to_file(&ctx->common);
+        list_handle_descriptors(ctx);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -1136,6 +1147,47 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
     }
     puts("");
     printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions);
+}
+
+static void list_handle_descriptors(const dump_processing_context* ctx) {
+    MINIDUMP_DIRECTORY* directory;
+    MINIDUMP_HANDLE_DATA_STREAM* handle_stream;
+    ULONG stream_size;
+
+    if (MiniDumpReadDumpStream(ctx->file_base, HandleDataStream, &directory, (void**)&handle_stream, &stream_size)) {
+        printf("Number of handles: %lu\n", handle_stream->NumberOfDescriptors);
+
+        MINIDUMP_HANDLE_DESCRIPTOR_2* handles = (MINIDUMP_HANDLE_DESCRIPTOR_2*)(handle_stream + 1);
+        for (ULONG i = 0; i < handle_stream->NumberOfDescriptors; i++) {
+            printf("Handle: 0x%llx\n", (unsigned long long)handles[i].Handle);
+
+            // Print type name directly
+            MINIDUMP_STRING* type_name_rva = (MINIDUMP_STRING*)((uintptr_t)ctx->file_base + handles[i].TypeNameRva);
+            if (type_name_rva && type_name_rva->Buffer) {
+                printf("Type: %ls\n", type_name_rva->Buffer);
+            } else {
+                printf("Type: (null)\n");
+            }
+
+            // Print object name directly
+            MINIDUMP_STRING* object_name_rva = (MINIDUMP_STRING*)((uintptr_t)ctx->file_base + handles[i].ObjectNameRva);
+            if (object_name_rva && object_name_rva->Buffer) {
+                printf("Object Name: %ls\n", object_name_rva->Buffer);
+            }
+            else {
+                printf("Object Name: (null)\n");
+            }
+
+            printf("Attributes: 0x%lx\n", handles[i].Attributes);
+            printf("Granted Access: 0x%lx\n", handles[i].GrantedAccess);
+            printf("Handle Count: %lu\n", handles[i].HandleCount);
+            printf("Pointer Count: %lu\n", handles[i].PointerCount);
+            printf("-----------------------\n");
+        }
+    } else {
+        fprintf(stderr, "Failed to read HandleDataStream.\n");
+    }
+    puts("");
 }
 
 static bool is_drive_ssd(const char* file_path) {
