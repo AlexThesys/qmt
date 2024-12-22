@@ -21,18 +21,18 @@
 `?`	- list commands (this message)  
 `/ <pattern>`	- search for a hex string  
 `/x <pattern>`	- search for a hex value (1-8 bytes wide)  
-`/a <pattern>`	- search for an ASCII string  
+`/a <pattern>`	- search for an ASCII string (can't start with '@') 
   *  All search commands have optional `:i`|`:s`|`:o` modifiers to limit the search to image || stack || other<br/>
-  ** Alternatively search could be ranged (e.g. `/@<start>:<length> <pattern>` )
+  ** Alternatively search could be ranged (e.g. `/x@<start-address>:<length> <pattern>` )
 
-`xb <N> @ <address>`	- hexdump N bytes at address  
-`xw <N> @ <address>`	- hexdump N words at address  
-`xd <N> @ <address>`	- hexdump N dwords at address  
-`xq <N> @ <address>`	- hexdump N qwords at address<br/>
+`xb @ <start-address>:<N>`	- hexdump N bytes at address  
+`xw @ <start-address>:<N>`	- hexdump N words at address  
+`xd @ <start-address>:<N>`	- hexdump N dwords at address  
+`xq @ <start-address>:<N>`	- hexdump N qwords at address<br/>
 `> <file-path>`         - redirect output to a file<br/>
 `> stdout`              - redirect output to stdout  
 `clear`	- clear screen  
-`q | exit`	- quit program  
+`q` || `exit`	- quit program  
 `lM`	- list process modules  
 `lt`	- list process threads  
 `lmi`	- list memory regions info  

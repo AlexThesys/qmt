@@ -499,7 +499,7 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
 
 static void execute_command(input_command cmd, proc_processing_context *ctx) {
     if ((cmd != c_help) && ((cmd != c_list_pids)) && (ctx->pid == (DWORD)(-1))) {
-        fprintf(stderr, "Select the PID first!");
+        fprintf(stderr, "Select the PID first!\n");
         return;
     }
 

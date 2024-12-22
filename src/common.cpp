@@ -190,7 +190,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         if (data->pdata.pattern_len <= sizeof(uint64_t)) {
             puts("\nSearching for a hex value...");
         } else {
-            fprintf(stderr, "Max supported hex value size: %d bytes!", (int)sizeof(uint64_t));
+            fprintf(stderr, "Max supported hex value size: %d bytes!\n", (int)sizeof(uint64_t));
             data->type = it_error_type;
         }
         break;
@@ -366,15 +366,15 @@ void print_help_common() {
     puts("?\t\t\t - list commands (this message)");
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
-    puts("/a <pattern>\t\t - search for an ascii string");
+    puts("/a <pattern>\t\t - search for an ascii string (can't start with '@')");
     puts("  *  All search commands have optional :i|:s|:o modifiers to limit the search to image || stack || other");
-    puts("  ** Alternatively search could be ranged (e.g. /@<start>:<length> <pattern> )");
+    puts("  ** Alternatively search could be ranged (e.g. /x@<start-address>:<length> <pattern> )");
     puts("> <file-path>\t\t - redirect output to a file");
     puts("> stdout\t\t - redirect output to stdout");
-    puts("xb <N> @ <address>\t - hexdump N bytes at address");
-    puts("xw <N> @ <address>\t - hexdump N words at address");
-    puts("xd <N> @ <address>\t - hexdump N dwords at address");
-    puts("xq <N> @ <address>\t - hexdump N qwords at address");
+    puts("xb @ <start-address>:<N>\t - hexdump N bytes at address");
+    puts("xw @ <start-address>:<N>\t - hexdump N words at address");
+    puts("xd @ <start-address>:<N>\t - hexdump N dwords at address");
+    puts("xq @ <start-address>:<N>\t - hexdump N qwords at address");
     puts("clear\t\t\t - clear screen");
     puts("q | exit\t\t - quit program");
     puts("lM\t\t\t - list process modules");
@@ -429,11 +429,18 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             fprintf(stderr, "Pattern missing.\n");
             return c_continue;
         }
+        if (args[0] == '@') { // yes, this means that in "/a" mode the string can't start with '@'
+            args = skip_to_args(args+1, arg_len);
+            if (args == nullptr) {
+                fprintf(stderr, "Pattern missing.\n");
+                return c_continue;
+            }
+        }
         const size_t pattern_len = arg_len - (ptrdiff_t)(args - cmd);
 
-        int cmd_length = 1;
-        for (; cmd_length < arg_len; cmd_length++) {
-            if (cmd[cmd_length] == ' ') break;
+        int cmd_length = arg_len - pattern_len;
+        for (; cmd_length < arg_len; cmd_length--) {
+            if (cmd[cmd_length - 1] != ' ') break;
         }
 
         // defaults
@@ -459,7 +466,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                     case 's' :
                         scope_type = search_scope_type::mrt_stack;
                         break;
-                    case 'h':
+                    case 'o':
                         scope_type = search_scope_type::mrt_other;
                         break;
                     default:
@@ -476,6 +483,12 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 in_type = input_type::it_hex_value; // temp
                 command = c_search_pattern_in_registers;
                 break;
+            case ' ':
+                if (((i + 1) >= cmd_length) || (cmd[i + 1] != '@')) {
+                    puts(unknown_command);
+                    return c_continue;
+                }
+                break;
             case '@': {
                 if (scope_type != search_scope_type::mrt_all) {
                     fprintf(stderr, "Ranged search incompatible with i|s|h modifiers.");
@@ -484,11 +497,18 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
 
                 int64_t size = 0;
                 void* p = nullptr;
-                int res = sscanf_s(cmd+i, "@%p:%llx", &p, &size);
+                int res = sscanf_s(cmd + i, "@%p:0x%llx", &p, &size); // "%*[^@]@%p:%lld"
                 if (res < 2) {
-                    res = sscanf_s(cmd+i, "@%p:lld", &p, &size);
-                    if (res < 2) {
-                        fprintf(stderr, "Error parsing the input;\n");
+                    char ch = 0;
+                    int res = sscanf_s(cmd + i, "@%p:%llx%c", &p, &size, &ch);
+                    if ((res == 3) && (ch == ' ')) {
+                        res = sscanf_s(cmd + i, "@%p:%lld", &p, &size);
+                        if (res < 2) {
+                            fprintf(stderr, "Error parsing the input.\n");
+                            return c_continue;
+                        }
+                    } else if ((res != 3) || (ch != 'h')) {
+                        fprintf(stderr, "Error parsing the input.\n");
                         return c_continue;
                     }
                 }
@@ -543,13 +563,20 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             return c_continue;
         }
 
-        int size = 0; 
+        int64_t size = 0; 
         void *p = nullptr;
-        int res = sscanf_s(cmd, "%*s %d @ %p", &size, &p);
+        int res = sscanf_s(cmd + 2, " @ %p:0x%llx", &p, &size); // "%*[^@]@%p:%lld"
         if (res < 2) {
-            res = sscanf_s(cmd, "%*s %x @ %p", &size, &p);
-            if (res < 2) {
-                fprintf(stderr, "Error parsing the input;\n");
+            char ch = 0;
+            int res = sscanf_s(cmd + 2, " @ %p:%llx%c", &p, &size, &ch);
+            if (res < 3) {
+                res = sscanf_s(cmd + 2, " @ %p:%lld", &p, &size);
+                if (res < 2) {
+                    fprintf(stderr, "Error parsing the input.\n");
+                    return c_continue;
+                }
+            } else if (ch != 'h') {
+                fprintf(stderr, "Error parsing the input.\n");
                 return c_continue;
             }
         }
