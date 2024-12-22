@@ -432,16 +432,13 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
         }
     }
     else if (cmd[0] == 'l') {
-        if (cmd[1] == 'p') {
+        if (cmd[1] == 'p' && cmd[2] == 0) {
             command = c_list_pids;
-        }
-        else if (cmd[1] == 'M') {
+        } else if (cmd[1] == 'M' && cmd[2] == 0) {
             command = c_list_modules;
-        }
-        else if (cmd[1] == 't') {
+        } else if (cmd[1] == 't' && cmd[2] == 0) {
             command = c_list_threads;
-        }
-        else if (cmd[1] == 'm') {
+        } else if (cmd[1] == 'm') {
             if (cmd[2] == 'i') {
                 // defaults
                 command = c_list_memory_regions_info;
@@ -484,8 +481,7 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
                 fprintf(stderr, unknown_command);
                 command = c_continue;
             }
-        }
-        else {
+        } else {
             fprintf(stderr, unknown_command);
             command = c_continue;
         }

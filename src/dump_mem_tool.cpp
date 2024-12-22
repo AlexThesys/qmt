@@ -682,7 +682,7 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
     }
 
     if (cmd[0] == 'l') {
-        if (cmd[1] == 'M') {
+        if (cmd[1] == 'M' && cmd[2] == 0) {
             command = c_list_modules;
         } else if (cmd[1] == 't') {
             if (cmd[2] == 0) {
@@ -738,7 +738,7 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
                 puts(unknown_command);
                 command = c_continue;
             }
-        } else if (cmd[1] == 'h') {
+        } else if (cmd[1] == 'h' && cmd[2] == 0) {
             command = c_list_handles;
         } else {
             puts(unknown_command);
@@ -1217,7 +1217,8 @@ static void list_handle_descriptors(const dump_processing_context* ctx) {
             // Print type name directly
             MINIDUMP_STRING* type_name_rva = (MINIDUMP_STRING*)((uintptr_t)ctx->file_base + handles[i].TypeNameRva);
             if (type_name_rva && type_name_rva->Buffer) {
-                printf("Type: %ls\n", type_name_rva->Buffer);
+                printf("Type: %ls", type_name_rva->Buffer);
+                puts("");
             } else {
                 printf("Type: (null)\n");
             }
@@ -1225,9 +1226,9 @@ static void list_handle_descriptors(const dump_processing_context* ctx) {
             // Print object name directly
             MINIDUMP_STRING* object_name_rva = (MINIDUMP_STRING*)((uintptr_t)ctx->file_base + handles[i].ObjectNameRva);
             if (object_name_rva && object_name_rva->Buffer) {
-                printf("Object Name: %ls\n", object_name_rva->Buffer);
-            }
-            else {
+                printf("Object Name: %ls", object_name_rva->Buffer);
+                puts("");
+            } else {
                 printf("Object Name: (null)\n");
             }
 
