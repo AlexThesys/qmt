@@ -1,8 +1,16 @@
 #include "common.h"
 
+#pragma comment(lib, "Onecore.lib")
+
+struct proc_mem_region {
+    const char* address;
+    // ...
+};
+
 struct proc_processing_context {
     common_processing_context common;
     DWORD pid;
+    proc_mem_region mem_region;
 };
 
 struct block_info_proc {
@@ -37,6 +45,7 @@ static void print_error(TCHAR const* msg);
 static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info);
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
 static bool test_selected_pid(proc_processing_context* ctx);
+static void print_memory_info(const proc_processing_context* ctx);
 
 static void find_pattern(search_context_proc* search_ctx) {
     HANDLE process = search_ctx->process;
@@ -358,6 +367,7 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
                     if (!res || !bytes_read) {
                         fprintf(stderr, "Error reading the memory region.\n");
                         free(buffer);
+                        CloseHandle(process);
                         return;
                     }
                     if (bytes_to_read == bytes_read) {
@@ -380,6 +390,7 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
 
     if (0 == bytes.size()) {
         puts("Address not found in commited memory ranges.");
+        CloseHandle(process);
         return;
     }
 
@@ -392,9 +403,10 @@ static void print_help() {
     puts("--------------------------------");
     puts("p <pid>\t\t\t - select PID");
     puts("lp\t\t\t - list system PIDs");
-    puts("lh\t\t\t - travers process heaps (slow)");
-    puts("lhe\t\t\t - travers process heaps, calculate entropy (slower)");
-    puts("lhb\t\t\t - travers process heaps, list heap blocks (extra slow)");
+    puts("mi@<address>\t\t - print memory region info");
+    puts("th\t\t\t - travers process heaps (slow)");
+    puts("the\t\t\t - travers process heaps, calculate entropy (slower)");
+    puts("thb\t\t\t - travers process heaps, list heap blocks (extra slow)");
     puts("********************************\n");
 }
 
@@ -425,14 +437,18 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
             ctx->pid = pid;
             command = c_test_pid;
         }
-    } else if (cmd[0] == 'l') {
+    }
+    else if (cmd[0] == 'l') {
         if (cmd[1] == 'p') {
             command = c_list_pids;
-        } else if (cmd[1] == 'M') {
+        }
+        else if (cmd[1] == 'M') {
             command = c_list_modules;
-        } else if (cmd[1] == 't') {
+        }
+        else if (cmd[1] == 't') {
             command = c_list_threads;
-        } else if (cmd[1] == 'm') {
+        }
+        else if (cmd[1] == 'm') {
             if (cmd[2] == 'i') {
                 // defaults
                 command = c_list_memory_regions_info;
@@ -470,25 +486,36 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
                 }
                 ctx->common.pdata.scope_type = scope_type;
 
-            } else {
+            }
+            else {
                 fprintf(stderr, unknown_command);
                 command = c_continue;
             }
-        } else if (cmd[1] == 'h') {
-            if (cmd[2] == 0) {
-                command = c_travers_heap;
-            } else if (cmd[2] == 'e') {
-                command = c_travers_heap_calc_entropy;
-            } else if (cmd[2] == 'b') {
-                command = c_travers_heap_blocks;
-            } else {
-                fprintf(stderr, unknown_command);
-                command = c_continue;
-            }
-        } else {
+        }
+        else {
             fprintf(stderr, unknown_command);
             command = c_continue;
         }
+    } else if ((cmd[0] == 'm') && (cmd[1] == 'i')) {
+        void* p = nullptr;
+        int res = sscanf_s(cmd, "mi @ %p", &p);
+        if (res < 1) {
+            fprintf(stderr, "Error parsing the input.\n");
+            return c_continue;
+        }
+        ctx->mem_region.address = (const char*)p;
+        command = c_print_memory_info;
+    } else if ((cmd[0] == 't') && (cmd[1] == 'h')) {
+         if (cmd[2] == 0) {
+             command = c_travers_heap;
+         } else if (cmd[2] == 'e') {
+             command = c_travers_heap_calc_entropy;
+         } else if (cmd[2] == 'b') {
+             command = c_travers_heap_blocks;
+         } else {
+             fprintf(stderr, unknown_command);
+             command = c_continue;
+         }
     } else {
         fprintf(stderr, unknown_command);
         command = c_continue;
@@ -555,6 +582,12 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_print_memory_info:
+        try_redirect_output_to_file(&ctx->common);
+        print_memory_info(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
     case c_travers_heap:
         try_redirect_output_to_file(&ctx->common);
         traverse_heap_list(ctx->pid, false, false, output_redirected(&ctx->common));
@@ -595,7 +628,7 @@ int run_process_inspection() {
     }
 
     search_data_info sdata;
-    proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, INVALID_ID };
+    proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, INVALID_ID, nullptr };
 
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
@@ -992,6 +1025,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
 
         if (check_num_results && (num_regions >= TOO_MANY_RESULTS)) {
             if (too_many_results(num_regions, redirected, false)) {
+                CloseHandle(process);
                 return;
             }
             check_num_results = false;
@@ -1010,6 +1044,8 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
     }
     puts("");
     printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions);
+
+    CloseHandle(process);
 }
 
 static void print_error(TCHAR const* msg) {
@@ -1053,5 +1089,79 @@ static bool test_selected_pid(proc_processing_context* ctx) {
 
     printf("Working set: min - %llu bytes / max - %llu bytes\n\n", min_working_set, max_working_set);
 
+    CloseHandle(process);
     return true;
+}
+
+static DWORD is_on_stack(const proc_processing_context* ctx, const MEMORY_BASIC_INFORMATION* r_info) {
+    std::vector<thread_info_proc> thread_info;
+    gather_thread_info(ctx->pid, thread_info);
+    DWORD tid = INVALID_ID;
+
+    for (const auto& ti : thread_info) {
+        if (((ULONG64)ti.stack_ptr >= (ULONG64)r_info->AllocationBase) && ((ULONG64)(ti.stack_ptr - ti.stack_size) <= ((ULONG64)r_info->BaseAddress + r_info->RegionSize))) {
+            wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", ti.thread_id);
+            break;
+        }
+    }
+
+    return tid;
+}
+
+static void print_region_flags(const WIN32_MEMORY_REGION_INFORMATION* flags) {
+    printf("Range Flags: ");
+    if (flags->Private) printf("Private ");
+    if (flags->MappedDataFile) printf("MappedDataFile ");
+    if (flags->MappedImage) printf("MappedImage ");
+    if (flags->MappedPageFile) printf("MappedPageFile ");
+    if (flags->MappedPhysical) printf("MappedPhysical ");
+    if (flags->DirectMapped) printf("DirectMapped ");
+    printf("\n");
+}
+
+static void print_memory_info(const proc_processing_context* ctx) {
+    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
+    if (process == NULL) {
+        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+        return;
+    }
+
+    WIN32_MEMORY_REGION_INFORMATION mem_info = { 0 };
+    SIZE_T return_length = 0;
+    BOOL status = QueryVirtualMemoryInformation
+                        (process, ctx->mem_region.address, MemoryRegionInfo, &mem_info, sizeof(mem_info), &return_length);
+    if (!status) {
+        fprintf(stderr, "Error querying virtual memory information.\n");
+        CloseHandle(process);
+        return;
+    }
+
+    MEMORY_BASIC_INFORMATION r_info;
+
+    if (VirtualQueryEx(process, ctx->mem_region.address, &r_info, sizeof(r_info)) != sizeof(r_info)) {
+        fprintf(stderr, "Error virtual query ex failed.\n");
+        CloseHandle(process);
+        return;
+    }
+    assert(mem_info.AllocationBase == r_info.AllocationBase);
+    puts("====================================\n");
+    if (mem_info.MappedImage) {
+        char module_name[MAX_PATH];
+        if (GetModuleFileNameExA(process, (HMODULE)mem_info.AllocationBase, module_name, MAX_PATH)) {
+            printf("Module name: %s\n", module_name);
+        }
+    } else if (mem_info.Private) {
+       DWORD tid = is_on_stack(ctx, &r_info);
+       if (tid != INVALID_ID) {
+           wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tid);
+       }
+    }
+    printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+        r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
+    print_page_type(r_info.Type);
+    printf("Range Alloc Size: 0x%llx bytes\n", (uint64_t)mem_info.RegionSize);
+    printf("Range Commit Size: 0x%llx bytes\n", (uint64_t)mem_info.CommitSize);
+    print_region_flags(&mem_info);
+
+    CloseHandle(process);
 }
