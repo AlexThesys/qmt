@@ -366,15 +366,15 @@ void print_help_common() {
     puts("?\t\t\t - list commands (this message)");
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
-    puts("/a <pattern>\t\t - search for an ascii string (can't start with '@')");
+    puts("/a <pattern>\t\t - search for an ascii string");
     puts("  *  All search commands have optional :i|:s|:o modifiers to limit the search to image || stack || other");
     puts("  ** Alternatively search could be ranged (e.g. /x@<start-address>:<length> <pattern> )");
     puts("> <file-path>\t\t - redirect output to a file");
     puts("> stdout\t\t - redirect output to stdout");
-    puts("xb @ <start-address>:<N>\t - hexdump N bytes at address");
-    puts("xw @ <start-address>:<N>\t - hexdump N words at address");
-    puts("xd @ <start-address>:<N>\t - hexdump N dwords at address");
-    puts("xq @ <start-address>:<N>\t - hexdump N qwords at address");
+    puts("xb@<address>:<N>\t - hexdump N bytes at address");
+    puts("xw@<address>:<N>\t - hexdump N words at address");
+    puts("xd@<address>:<N>\t - hexdump N dwords at address");
+    puts("xq@<address>:<N>\t - hexdump N qwords at address");
     puts("clear\t\t\t - clear screen");
     puts("q | exit\t\t - quit program");
     puts("lM\t\t\t - list process modules");
@@ -423,12 +423,13 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         clear_screen();
         command = c_continue;
     } else if (cmd[0] == '/') {
-        const size_t arg_len = strlen(cmd);
+        const int64_t arg_len = strlen(cmd);
         char* args = skip_to_args(cmd, arg_len);
         if (args == nullptr) {
             fprintf(stderr, "Pattern missing.\n");
             return c_continue;
         }
+#if 0
         if (args[0] == '@') { // yes, this means that in "/a" mode the string can't start with '@'
             args = skip_to_args(args+1, arg_len);
             if (args == nullptr) {
@@ -436,9 +437,10 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 return c_continue;
             }
         }
-        const size_t pattern_len = arg_len - (ptrdiff_t)(args - cmd);
+#endif
+        const int64_t pattern_len = arg_len - (ptrdiff_t)(args - cmd);
 
-        int cmd_length = arg_len - pattern_len;
+        int64_t cmd_length = arg_len - pattern_len;
         for (; cmd_length < arg_len; cmd_length--) {
             if (cmd[cmd_length - 1] != ' ') break;
         }
