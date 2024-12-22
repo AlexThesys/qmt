@@ -1,5 +1,5 @@
 # Quick Memory Tools  
-**Version 0.3.3**  
+**Version 0.3.4**  
 
 ## ==== Command Line Options ====  
 
@@ -18,7 +18,9 @@
 
 ## ==== Common Commands ====  
 
-`?`	- list commands (this message)  
+`?`	- list commands (this message)<br/>
+`clear`	- clear screen  
+`q` || `exit`	- quit program<br/> 
 `/ <pattern>`	- search for a hex string  
 `/x <pattern>`	- search for a hex value (1-8 bytes wide)  
 `/a <pattern>`	- search for an ASCII string 
@@ -29,10 +31,9 @@
 `xw@<address>:<N>`	- hexdump N words at address  
 `xd@<address>:<N>`	- hexdump N dwords at address  
 `xq@<address>:<N>`	- hexdump N qwords at address<br/>
-`> <file-path>`         - redirect output to a file<br/>
-`> stdout`              - redirect output to stdout  
-`clear`	- clear screen  
-`q` || `exit`	- quit program  
+`> <file-path>` - redirect output to a file<br/>
+`> stdout` - redirect output to stdout  
+`mi@<address>` - print memory region info<br/>
 `lM`	- list process modules  
 `lt`	- list process threads  
 `lmi`	- list memory regions info  
@@ -43,12 +44,13 @@
 
 `p <pid>`	- select PID  
 `lp`	- list system PIDs  
-`lh`	- traverse process heaps (slow)  
-`lhe`	- traverse process heaps, calculate entropy (slower)  
-`lhb`	- traverse process heaps, list heap blocks (extra slow)  
+`th`	- traverse process heaps (slow)  
+`the`	- traverse process heaps, calculate entropy (slower)  
+`thb`	- traverse process heaps, list heap blocks (extra slow)  
 
 ## ==== Crash Dump Mode Commands ====  
 
 `/xr <pattern>`	- search for a hex value in GP registers  
 `ltr`	- list thread registers  
-`lm`	- list memory regions (regions to search through)  
+`lm`	- list memory regions (regions to search through)<br/>
+`lh` - list handles
