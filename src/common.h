@@ -40,6 +40,7 @@
 #define NEXT_DOT_INTERVAL 0x10
 #define WAIT_FOR_MS 400
 #define AVAIL_PHYS_MEM_FACTOR 0X04 // ?
+#define INVALID_ID ((DWORD)(-1))
 
 //#define DISABLE_STANDBY_LIST_PURGE
 
@@ -75,6 +76,7 @@ enum input_command {
     c_travers_heap,
     c_travers_heap_calc_entropy,
     c_travers_heap_blocks,
+    c_test_pid,
     c_continue,
     c_quit_program,
     c_not_set,

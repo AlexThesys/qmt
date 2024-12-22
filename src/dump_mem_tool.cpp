@@ -590,7 +590,7 @@ static void search_pattern_in_registers(const dump_processing_context *ctx) {
     }
     printf("*** Total number of matches: %llu ***\n", num_matches);
 
-    DWORD tid_prev = (DWORD)(-1);
+    DWORD tid_prev = INVALID_ID;
     for (const reg_search_result &res : matches) {
         if (tid_prev != res.tid) {
             puts("\n------------------------------------\n");

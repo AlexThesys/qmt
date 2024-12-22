@@ -36,6 +36,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
 static void print_error(TCHAR const* msg);
 static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info);
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
+static bool test_selected_pid(proc_processing_context* ctx);
 
 static void find_pattern(search_context_proc* search_ctx) {
     HANDLE process = search_ctx->process;
@@ -418,11 +419,11 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
         char* end = NULL;
         const DWORD pid = strtoul(args, &end, is_hex(args, pid_len) ? 16 : 10);
         if (args == end) {
-            fprintf(stderr, "Invalid PID! Exiting...\n");
-            command = c_quit_program;
+            fprintf(stderr, "[!] Invalid PID.\n");
+            command = c_continue;
         } else {
             ctx->pid = pid;
-            command = c_continue;
+            command = c_test_pid;
         }
     } else if (cmd[0] == 'l') {
         if (cmd[1] == 'p') {
@@ -498,7 +499,7 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
 }
 
 static void execute_command(input_command cmd, proc_processing_context *ctx) {
-    if ((cmd != c_help) && ((cmd != c_list_pids)) && (ctx->pid == (DWORD)(-1))) {
+    if ((cmd != c_help) && ((cmd != c_list_pids)) && (ctx->pid == INVALID_ID)) {
         fprintf(stderr, "Select the PID first!\n");
         return;
     }
@@ -572,6 +573,12 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_test_pid:
+        try_redirect_output_to_file(&ctx->common);
+        test_selected_pid(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
     default :
         puts(unknown_command);
         break;
@@ -588,7 +595,7 @@ int run_process_inspection() {
     }
 
     search_data_info sdata;
-    proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, (DWORD)(-1) };
+    proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, INVALID_ID };
 
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
@@ -1025,4 +1032,26 @@ static void print_error(TCHAR const* msg) {
 
     // Display the message
     _ftprintf(stderr, TEXT("\n  WARNING: %s failed with error %d (%s)"), msg, eNum, sysMsg);
+}
+
+static bool test_selected_pid(proc_processing_context* ctx) {
+    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
+    if (process == NULL) {
+        ctx->pid = INVALID_ID;
+        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+        return false;
+    }
+
+    char proc_name[MAX_PATH];
+    if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
+        printf("Process name: %s\n", proc_name);
+    }
+
+    SIZE_T min_working_set, max_working_set;
+    DWORD flags;
+    GetProcessWorkingSetSizeEx(process, &min_working_set, &max_working_set, &flags);
+
+    printf("Working set: min - %llu bytes / max - %llu bytes\n\n", min_working_set, max_working_set);
+
+    return true;
 }
