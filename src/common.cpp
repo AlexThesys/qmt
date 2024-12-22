@@ -10,7 +10,7 @@ const char* command_not_implemented = "Command not implemented.\n";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.3.4";
+static const char* program_version = "Version 0.3.5";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = INVALID_THREAD_NUM;
@@ -361,29 +361,48 @@ char* skip_to_args(char *cmd, size_t len) {
     return found ? (cmd + cur_len) : nullptr;
 }
 
-void print_help_common() {
-    puts("\n********************************");
+void print_help_main_common() {
+    puts("\n------------------------------------");
     puts("?\t\t\t - list commands (this message)");
+    puts("/?\t\t\t - display search commands");
+    puts(">?\t\t\t - display redirection commands");
     puts("clear\t\t\t - clear screen");
+    puts("l?\t\t\t - display list commands");
+    puts("mi@<address>\t\t - print memory region info");
+    puts("x?\t\t\t - display hexdump commands");
     puts("q | exit\t\t - quit program");
+}
+
+void print_help_search_common() {
+    puts("\n------------------------------------");
+    puts("*  All search commands have optional :i|:s|:o modifiers to limit the search to image || stack || other");
+    puts("** Alternatively search could be ranged (e.g. /x@<start-address>:<length> <pattern> )");
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
-    puts("  *  All search commands have optional :i|:s|:o modifiers to limit the search to image || stack || other");
-    puts("  ** Alternatively search could be ranged (e.g. /x@<start-address>:<length> <pattern> )");
+}
+
+void print_help_redirect_common() {
+    puts("\n------------------------------------");
     puts("> <file-path>\t\t - redirect output to a file");
     puts("> stdout\t\t - redirect output to stdout");
+}
+
+void print_help_hexdump_common() {
+    puts("\n------------------------------------");
     puts("xb@<address>:<N>\t - hexdump N bytes at address");
     puts("xw@<address>:<N>\t - hexdump N words at address");
     puts("xd@<address>:<N>\t - hexdump N dwords at address");
     puts("xq@<address>:<N>\t - hexdump N qwords at address");
-    puts("mi@<address>\t\t - print memory region info");
+}
+
+void print_help_list_common() {
+    puts("\n------------------------------------");
+    puts("*  Memory listing commands have optional :i|:s|:o modifiers to display only image || stack || other");
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
     puts("lmi\t\t\t - list memory regions info");
     puts("lmic\t\t\t - list committed memory regions info");
-    puts("  *  Memory listing commands have optional :i|:s|:o modifiers to display only image || stack || other");
-
 }
 
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -397,12 +416,15 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     }
     if (cmd[0] == 0) {
         command = c_continue;
-    } else if ((cmd[0] == 'q') || (0 == strcmp(cmd, "exit"))) {
+    } else if (((cmd[0] == 'q') && (cmd[1] == 0)) || (0 == strcmp(cmd, "exit"))) {
         puts("\n==== Exiting... ====");
         command = c_quit_program;
-    } else if (cmd[0] == '?') {
-        command = c_help;
+    } else if (cmd[0] == '?' && cmd[1] == 0) {
+        command = c_help_main;
     } else if (cmd[0] == '>') {
+        if (cmd[1] == '?') {
+            return c_help_redirect;
+        }
         const size_t cmd_len = strlen(cmd);
         const char* filepath = skip_to_args(cmd, cmd_len);
         if (filepath == nullptr) {
@@ -424,6 +446,9 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         clear_screen();
         command = c_continue;
     } else if (cmd[0] == '/') {
+        if (cmd[1] == '?') {
+            return c_help_search;
+        }
         const int64_t arg_len = strlen(cmd);
         char* args = skip_to_args(cmd, arg_len);
         if (args == nullptr) {
@@ -552,6 +577,9 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             ctx->pdata.pattern_len = data->pdata.pattern_len;
         }
     } else if (cmd[0] == 'x') {
+        if (cmd[1] == '?') {
+            return c_help_hexdump;
+        }
         hexdump_mode mode;
         if (cmd[1] == 'b') {
             mode = hexdump_mode::hm_bytes;

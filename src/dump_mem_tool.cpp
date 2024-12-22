@@ -662,13 +662,35 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
     print_hexdump(ctx->common.hdata, bytes);
 }
 
-static void print_help() {
+static void print_help_main() {
+    print_help_main_common();
+    puts("------------------------------------\n");
+}
+
+static void print_help_search() {
+    print_help_search_common();
     puts("--------------------------------");
     puts("/xr <pattern>\t\t - search for a hex value in GP registers");
-    puts("ltr\t\t\t - list thread registers");
-    puts("lm\t\t\t - list memory regions (regions to search through)");
+    puts("------------------------------------\n");
+}
+
+static void print_help_redirect() {
+    print_help_redirect_common();
+    puts("------------------------------------\n");
+}
+
+static void print_help_hexdump() {
+    print_help_hexdump_common();
+    puts("------------------------------------\n");
+}
+
+static void print_help_list() {
+    print_help_list_common();
+    puts("------------------------------------");
     puts("lh\t\t\t - list handles");
-    puts("********************************\n");
+    puts("ltr\t\t\t - list thread GP registers");
+    puts("lm\t\t\t - list memory regions (regions to search through)");
+    puts("------------------------------------\n");
 }
 
 static input_command parse_command(dump_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -682,6 +704,9 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
     }
 
     if (cmd[0] == 'l') {
+        if (cmd[1] == '?') {
+            return c_help_list;
+        }
         if (cmd[1] == 'M' && cmd[2] == 0) {
             command = c_list_modules;
         } else if (cmd[1] == 't') {
@@ -755,9 +780,20 @@ static input_command parse_command(dump_processing_context *ctx, search_data_inf
 
 static void execute_command(input_command cmd, dump_processing_context *ctx) {
     switch (cmd) {
-    case c_help :
-        print_help_common();
-        print_help();
+    case c_help_main :
+        print_help_main();
+        break;
+    case c_help_search:
+        print_help_search();
+        break;
+    case c_help_redirect:
+        print_help_redirect();
+        break;
+    case c_help_list:
+        print_help_list();
+        break;
+    case c_help_hexdump:
+        print_help_hexdump();
         break;
     case c_search_pattern :
         wait_for_memory_regions_caching(&ctx->pages_caching_state);
@@ -892,8 +928,7 @@ int run_dump_inspection() {
     }
   
     puts("");
-    print_help_common();
-    print_help();
+    print_help_main();
 
     gather_modules(&ctx);
     gather_threads(&ctx);

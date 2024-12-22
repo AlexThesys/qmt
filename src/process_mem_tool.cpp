@@ -393,14 +393,42 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
     CloseHandle(process);
 }
 
-static void print_help() {
-    puts("--------------------------------");
+static void print_help_main() {
+    print_help_main_common();
+    puts("------------------------------------");
     puts("p <pid>\t\t\t - select PID");
+    puts("th?\t\t\t - display heap traversal commands");
+    puts("------------------------------------\n");
+}
+
+static void print_help_search() {
+    print_help_search_common();
+    puts("------------------------------------\n");
+}
+
+static void print_help_redirect() {
+    print_help_redirect_common();
+    puts("------------------------------------\n");
+}
+
+static void print_help_hexdump() {
+    print_help_hexdump_common();
+    puts("------------------------------------\n");
+}
+
+static void print_help_list() {
+    print_help_list_common();
+    puts("------------------------------------");
     puts("lp\t\t\t - list system PIDs");
+    puts("------------------------------------\n");
+}
+
+static void print_help_traverse_heap() {
+    puts("\n------------------------------------");
     puts("th\t\t\t - travers process heaps (slow)");
     puts("the\t\t\t - travers process heaps, calculate entropy (slower)");
     puts("thb\t\t\t - travers process heaps, list heap blocks (extra slow)");
-    puts("********************************\n");
+    puts("------------------------------------\n");
 }
 
 static input_command parse_command(proc_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -432,6 +460,9 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
         }
     }
     else if (cmd[0] == 'l') {
+        if (cmd[1] == '?') {
+            return c_help_list;
+        }
         if (cmd[1] == 'p' && cmd[2] == 0) {
             command = c_list_pids;
         } else if (cmd[1] == 'M' && cmd[2] == 0) {
@@ -486,6 +517,9 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
             command = c_continue;
         }
     } else if ((cmd[0] == 't') && (cmd[1] == 'h')) {
+        if (cmd[2] == '?') {
+            return c_help_traverse_heap;
+        }
          if (cmd[2] == 0) {
              command = c_travers_heap;
          } else if (cmd[2] == 'e') {
@@ -506,15 +540,30 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
 }
 
 static void execute_command(input_command cmd, proc_processing_context *ctx) {
-    if ((cmd != c_help) && ((cmd != c_list_pids)) && (ctx->pid == INVALID_ID)) {
+    const bool pid_required = (cmd > c_help_commands_number) && ((cmd != c_list_pids));
+    if (pid_required && (ctx->pid == INVALID_ID)) {
         fprintf(stderr, "Select the PID first!\n");
         return;
     }
 
     switch (cmd) {
-    case c_help :
-        print_help_common();
-        print_help();
+    case c_help_main:
+        print_help_main();
+        break;
+    case c_help_search:
+        print_help_search();
+        break;
+    case c_help_redirect:
+        print_help_redirect();
+        break;
+    case c_help_list:
+        print_help_list();
+        break;
+    case c_help_hexdump:
+        print_help_hexdump();
+        break;
+    case c_help_traverse_heap:
+        print_help_traverse_heap();
         break;
     case c_search_pattern :
         try_redirect_output_to_file(&ctx->common);
@@ -599,9 +648,8 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
 }
 
 int run_process_inspection() {
-    puts("");
-    print_help_common();
-    print_help();
+    puts("\nSelect PID to start inspecting process memory.");
+    print_help_main();
 
     if (g_max_threads == INVALID_THREAD_NUM) { // no -t || --threads cmd arg has been passed
         g_max_threads = MAX_THREAD_NUM; // going to be clamped later

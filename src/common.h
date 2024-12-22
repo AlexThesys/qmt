@@ -61,7 +61,13 @@ enum search_scope_type {
 };
 
 enum input_command {
-    c_help,
+    c_help_main,
+    c_help_search,
+    c_help_redirect,
+    c_help_list,
+    c_help_hexdump,
+    c_help_traverse_heap,
+    c_help_commands_number,
     c_search_pattern,
     c_search_pattern_in_registers,
     c_list_pids,
@@ -178,7 +184,11 @@ bool too_many_results(size_t num_lines, bool redirected, bool precise=true);
 const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* substr, size_t substr_sz);
 char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);
-void print_help_common();
+void print_help_main_common();
+void print_help_search_common();
+void print_help_redirect_common();
+void print_help_hexdump_common();
+void print_help_list_common();
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* pattern);
 uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
 void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t> &bytes);

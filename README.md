@@ -1,5 +1,5 @@
 # Quick Memory Tools  
-**Version 0.3.4**  
+**Version 0.3.5**  
 
 ## ==== Command Line Options ====  
 
@@ -51,6 +51,6 @@
 ## ==== Crash Dump Mode Commands ====  
 
 `/xr <pattern>`	- search for a hex value in GP registers  
-`ltr`	- list thread registers  
+`ltr`	- list thread GP registers  
 `lm`	- list memory regions (regions to search through)<br/>
 `lh` - list handles
