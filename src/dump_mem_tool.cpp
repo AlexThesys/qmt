@@ -75,6 +75,7 @@ static void list_modules(const dump_processing_context* ctx);
 static void list_threads(const dump_processing_context* ctx);
 static void list_thread_registers(const dump_processing_context* ctx);
 static void list_memory_regions_info(const dump_processing_context* ctx, bool show_commited);
+static void print_memory_info(const dump_processing_context* ctx);
 static void list_handle_descriptors(const dump_processing_context* ctx);
 static bool is_drive_ssd(const char* file_path);
 static void cache_memory_regions(dump_processing_context* ctx);
@@ -797,6 +798,12 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_print_memory_info:
+        try_redirect_output_to_file(&ctx->common);
+        print_memory_info(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
     case c_list_modules:
         try_redirect_output_to_file(&ctx->common);
         list_modules(ctx);
@@ -1110,13 +1117,14 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
         return;
     }
 
+    const bool scoped_search = ctx->common.pdata.scope_type != search_scope_type::mrt_all;
+
     const ULONG64 num_entries = memory_info_list->NumberOfEntries;
-    if (too_many_results(num_entries, output_redirected(&ctx->common))) {
+    if (!scoped_search && too_many_results(num_entries, output_redirected(&ctx->common))) {
         return;
     }
 
     const MINIDUMP_MEMORY_INFO* memory_info = (MINIDUMP_MEMORY_INFO*)((char*)(memory_info_list) + sizeof(MINIDUMP_MEMORY_INFO_LIST));
-    const bool scoped_search = ctx->common.pdata.scope_type != search_scope_type::mrt_all;
 
     ULONG prev_module = (ULONG)(-1);
     uint64_t num_regions = 0;
@@ -1147,6 +1155,51 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
     }
     puts("");
     printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions);
+}
+
+static void print_memory_info(const dump_processing_context* ctx) {
+    MINIDUMP_MEMORY_INFO_LIST* memory_info_list = nullptr;
+    ULONG stream_size = 0;
+    if (!MiniDumpReadDumpStream(ctx->file_base, MemoryInfoListStream, nullptr, reinterpret_cast<void**>(&memory_info_list), &stream_size)) {
+        fprintf(stderr, "Failed to read MemoryInfoListStream.\n");
+        return;
+    }
+    const MINIDUMP_MEMORY_INFO* memory_info = (MINIDUMP_MEMORY_INFO*)((char*)(memory_info_list)+sizeof(MINIDUMP_MEMORY_INFO_LIST));
+
+    for (ULONG i = 0; i < memory_info_list->NumberOfEntries; ++i) {
+        const MINIDUMP_MEMORY_INFO& mem_info = memory_info[i];
+
+        if (((ULONG64)ctx->common.mem_region.address < mem_info.BaseAddress) || ((ULONG64)ctx->common.mem_region.address >= (mem_info.BaseAddress + mem_info.RegionSize))) {
+            continue;
+        }
+
+        bool found_on_stack = false;
+        if (mem_info.Type == MEM_PRIVATE) {
+            for (size_t t = 0, sz = ctx->t_data.size(); t < sz; t++) {
+                const thread_info_dump& tdata = ctx->t_data[t];
+                if (((ULONG64)tdata.stack_base >= mem_info.BaseAddress) && (tdata.context->Rsp <= (mem_info.BaseAddress + mem_info.RegionSize))) {
+                    wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tdata.tid);
+                    found_on_stack = true;
+                    break;
+                }
+            }
+        }
+        if (!found_on_stack && (mem_info.Type == MEM_IMAGE)) {
+            for (size_t m = 0, sz = ctx->m_data.size(); m < sz; m++) {
+                const module_data& mdata = ctx->m_data[m];
+                if (((ULONG64)mdata.base_of_image <= mem_info.BaseAddress) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (mem_info.BaseAddress + mem_info.RegionSize))) {
+                    wprintf((LPWSTR)L"Module name: %s\n", mdata.name);
+                    break;
+                }
+            }
+        }
+        printf("Base Address: 0x%p | Size: 0x%08llx | State: %s\t | Protect: %s\t",
+            memory_info[i].BaseAddress, memory_info[i].RegionSize,
+            get_page_state(mem_info.State), get_page_protect(mem_info.Protect));
+        print_page_type(mem_info.Type);
+        puts("");
+        break;
+    }
 }
 
 static void list_handle_descriptors(const dump_processing_context* ctx) {

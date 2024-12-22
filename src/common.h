@@ -121,11 +121,17 @@ struct redirection_data {
     char filepath[MAX_PATH];
 };
 
+struct proc_mem_region {
+    const char* address;
+    // ...
+};
+
 struct common_processing_context {
     pattern_data pdata;
     hexdump_data hdata;
     redirection_data rdata;
-    char* command;
+    char* command = nullptr;
+    proc_mem_region mem_region{ nullptr };
 };
 
 struct search_data_info {

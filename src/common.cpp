@@ -364,6 +364,8 @@ char* skip_to_args(char *cmd, size_t len) {
 void print_help_common() {
     puts("\n********************************");
     puts("?\t\t\t - list commands (this message)");
+    puts("clear\t\t\t - clear screen");
+    puts("q | exit\t\t - quit program");
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
@@ -375,8 +377,7 @@ void print_help_common() {
     puts("xw@<address>:<N>\t - hexdump N words at address");
     puts("xd@<address>:<N>\t - hexdump N dwords at address");
     puts("xq@<address>:<N>\t - hexdump N qwords at address");
-    puts("clear\t\t\t - clear screen");
-    puts("q | exit\t\t - quit program");
+    puts("mi@<address>\t\t - print memory region info");
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
     puts("lmi\t\t\t - list memory regions info");
@@ -592,6 +593,15 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         ctx->hdata.mode = mode;
 
         command = c_print_hexdump;
+    } else if ((cmd[0] == 'm') && (cmd[1] == 'i')) {
+        void* p = nullptr;
+        int res = sscanf_s(cmd, "mi @ %p", &p);
+        if (res < 1) {
+            fprintf(stderr, "Error parsing the input.\n");
+            return c_continue;
+        }
+        ctx->mem_region.address = (const char*)p;
+        command = c_print_memory_info;
     } else {
         command = c_not_set;
     }
