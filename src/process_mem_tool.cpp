@@ -540,7 +540,7 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
 }
 
 static void execute_command(input_command cmd, proc_processing_context *ctx) {
-    const bool pid_required = (cmd > c_help_commands_number) && ((cmd != c_list_pids));
+    const bool pid_required = (cmd > c_help_commands_number) && (cmd != c_list_pids);
     if (pid_required && (ctx->pid == INVALID_ID)) {
         fprintf(stderr, "Select the PID first!\n");
         return;
@@ -657,6 +657,10 @@ int run_process_inspection() {
 
     search_data_info sdata;
     proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, INVALID_ID };
+
+    if (!setup_console(&ctx.common.rdata)) {
+        fprintf(stderr, "Failed setting up the console.");
+    }
 
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];

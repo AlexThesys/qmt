@@ -1,5 +1,8 @@
 #include "common.h"
 
+#include <io.h>
+#include <fcntl.h>
+
 const char* page_state[] = { "MEM_COMMIT", "MEM_FREE", "MEM_RESERVE" };
 const char* page_type[] = { "MEM_IMAGE", "MEM_MAPPED", "MEM_PRIVATE" };
 const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUTE_READWRITE", "PAGE_EXECUTE_WRITECOPY", "PAGE_NOACCESS", "PAGE_READONLY",
@@ -20,7 +23,7 @@ inspection_mode g_inspection_mode = inspection_mode::im_none;
 int g_purge_standby_pages = 0;
 int g_disable_page_caching = 0;
 
-static DWORD clear_screen();
+static DWORD clear_screen(redirection_data* rdata);
 
 static constexpr int check_architecture_ct() {
 #if defined(__x86_64__) || defined(_M_X64)
@@ -443,7 +446,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         }
         command = c_continue;
     } else if (0 == strcmp(cmd, "clear")) {
-        clear_screen();
+        clear_screen(&ctx->rdata);
         command = c_continue;
     } else if (cmd[0] == '/') {
         if (cmd[1] == '?') {
@@ -745,34 +748,40 @@ void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes)
     puts("");
 }
 
-static DWORD clear_screen() {
-    HANDLE h_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
-
-    DWORD mode = 0;
-    if (!GetConsoleMode(h_stdout, &mode))
-    {
-        return ::GetLastError();
-    }
-
-    const DWORD original_mode = mode;
+static DWORD clear_screen(redirection_data* rdata) {
+    DWORD mode = rdata->original_console_mode;
     mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
 
-    if (!SetConsoleMode(h_stdout, mode))
+    if (!SetConsoleMode(rdata->original_stdout_handle, mode))
     {
         return ::GetLastError();
     }
 
     DWORD written = 0;
     PCWSTR sequence = L"\x1b[2J \x1b[3J \x1b[0;0H";
-    if (!WriteConsoleW(h_stdout, sequence, (DWORD)wcslen(sequence), &written, NULL))
+    if (!WriteConsoleW(rdata->original_stdout_handle, sequence, (DWORD)wcslen(sequence), &written, NULL))
     {
-        SetConsoleMode(h_stdout, original_mode);
+        SetConsoleMode(rdata->original_stdout_handle, rdata->original_console_mode);
         return ::GetLastError();
     }
 
-    SetConsoleMode(h_stdout, original_mode);
+    SetConsoleMode(rdata->original_stdout_handle, rdata->original_console_mode);
 
     return 0;
+}
+
+
+bool setup_console(redirection_data* rdata) {
+    rdata->original_stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (rdata->original_stdout_handle == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "Error: Invalid standard output handle. Error code: %lu\n", GetLastError());
+        return false;
+    }
+    if (!GetConsoleMode(rdata->original_stdout_handle, &rdata->original_console_mode)) {
+        fprintf(stderr, "Error: Failed to get original console mode. Error code: %lu\n", GetLastError());
+        return false;
+    }
+    return true;
 }
 
 void try_redirect_output_to_file(common_processing_context* ctx) {
@@ -806,7 +815,7 @@ void redirect_output_to_stdout(common_processing_context* ctx) {
     }
 
     FILE* console = nullptr;
-    if (0 != freopen_s(&console, "CON", "w", stdout)) {
+    if (0 != freopen_s(&console, "CONOUT$", "w", stdout)) {
         fprintf(stderr, "*** Failed redirecting the output to stdout.\n");
     }
 }
