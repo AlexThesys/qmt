@@ -658,10 +658,6 @@ int run_process_inspection() {
     search_data_info sdata;
     proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, INVALID_ID };
 
-    if (!setup_console(&ctx.common.rdata)) {
-        fprintf(stderr, "Failed setting up the console.");
-    }
-
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
     ctx.common.command = command;
@@ -736,7 +732,8 @@ static int list_processes() {
             _tprintf(TEXT("\n  Priority class    = %d"), dwPriorityClass);
 
     } while (Process32Next(hProcessSnap, &pe32));
-    _tprintf(TEXT("\n\n================="));
+    fprintf(stderr, "\n");
+    _tprintf(TEXT("\n================="));
     CloseHandle(hProcessSnap);
     return(TRUE);
 }

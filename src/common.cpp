@@ -20,7 +20,7 @@ inspection_mode g_inspection_mode = inspection_mode::im_none;
 int g_purge_standby_pages = 0;
 int g_disable_page_caching = 0;
 
-static DWORD clear_screen(redirection_data* rdata);
+static void clear_screen();
 
 static constexpr int check_architecture_ct() {
 #if defined(__x86_64__) || defined(_M_X64)
@@ -443,7 +443,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         }
         command = c_continue;
     } else if (0 == strcmp(cmd, "clear")) {
-        clear_screen(&ctx->rdata);
+        clear_screen();
         command = c_continue;
     } else if (cmd[0] == '/') {
         if (cmd[1] == '?') {
@@ -745,40 +745,8 @@ void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes)
     puts("");
 }
 
-static DWORD clear_screen(redirection_data* rdata) {
-    DWORD mode = rdata->original_console_mode;
-    mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-
-    if (!SetConsoleMode(rdata->original_stdout_handle, mode))
-    {
-        return ::GetLastError();
-    }
-
-    DWORD written = 0;
-    PCWSTR sequence = L"\x1b[2J \x1b[3J \x1b[0;0H";
-    if (!WriteConsoleW(rdata->original_stdout_handle, sequence, (DWORD)wcslen(sequence), &written, NULL))
-    {
-        SetConsoleMode(rdata->original_stdout_handle, rdata->original_console_mode);
-        return ::GetLastError();
-    }
-
-    SetConsoleMode(rdata->original_stdout_handle, rdata->original_console_mode);
-
-    return 0;
-}
-
-
-bool setup_console(redirection_data* rdata) {
-    rdata->original_stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (rdata->original_stdout_handle == INVALID_HANDLE_VALUE) {
-        fprintf(stderr, "Error: Invalid standard output handle. Error code: %lu\n", GetLastError());
-        return false;
-    }
-    if (!GetConsoleMode(rdata->original_stdout_handle, &rdata->original_console_mode)) {
-        fprintf(stderr, "Error: Failed to get original console mode. Error code: %lu\n", GetLastError());
-        return false;
-    }
-    return true;
+static void clear_screen() {
+    wprintf(L"\x1b[2J \x1b[3J \x1b[0;0H");
 }
 
 void try_redirect_output_to_file(common_processing_context* ctx) {

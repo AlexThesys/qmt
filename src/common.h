@@ -125,8 +125,6 @@ struct redirection_data {
     bool redirect = false;
     bool append = false;
     char filepath[MAX_PATH];
-    HANDLE original_stdout_handle = nullptr;
-    DWORD original_console_mode = 0;
 };
 
 struct proc_mem_region {
@@ -194,7 +192,6 @@ void print_help_list_common();
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* pattern);
 uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
 void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t> &bytes);
-bool setup_console(redirection_data* rdata);
 void try_redirect_output_to_file(common_processing_context* ctx);
 void redirect_output_to_stdout(common_processing_context* ctx);
 

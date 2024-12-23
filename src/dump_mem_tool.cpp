@@ -902,10 +902,6 @@ int run_dump_inspection() {
     }
 #endif // DISABLE_STANDBY_LIST_PURGE
 
-    if (!setup_console(&ctx.common.rdata)) {
-        fprintf(stderr, "Failed setting up the console.");
-    }
-
     // pre-cache physical pages
     std::thread page_caching_thread;
     if (!g_disable_page_caching) {
