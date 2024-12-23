@@ -675,7 +675,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 char ch = 0;
                 int res = sscanf_s(cmd + 2, " %x%c", &ctx->info_ctx.tid, &ch);
                 if (res < 2) {
-                    res = sscanf_s(cmd + 2, " @%d", &ctx->info_ctx.tid);
+                    res = sscanf_s(cmd + 2, " %d", &ctx->info_ctx.tid);
                     if (res < 1) {
                         fprintf(stderr, "Error parsing the input.\n");
                         return c_continue;
