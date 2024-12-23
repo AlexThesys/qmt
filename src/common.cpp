@@ -1,8 +1,5 @@
 #include "common.h"
 
-#include <io.h>
-#include <fcntl.h>
-
 const char* page_state[] = { "MEM_COMMIT", "MEM_FREE", "MEM_RESERVE" };
 const char* page_type[] = { "MEM_IMAGE", "MEM_MAPPED", "MEM_PRIVATE" };
 const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUTE_READWRITE", "PAGE_EXECUTE_WRITECOPY", "PAGE_NOACCESS", "PAGE_READONLY",
