@@ -80,9 +80,9 @@ enum input_command {
     c_list_memory_regions_info,
     c_list_memory_regions_info_committed,
     c_list_handles,
-    c_show_info_memory,
-    c_show_info_module,
-    c_show_info_thread,
+    c_inspect_memory,
+    c_inspect_module,
+    c_inspect_thread,
     c_print_info_thread_registers,
     c_travers_heap,
     c_travers_heap_calc_entropy,
@@ -131,7 +131,7 @@ struct redirection_data {
     char filepath[MAX_PATH];
 };
 
-struct info_context {
+struct inspect_context {
     const char* memory_address;
     DWORD tid;
     wchar_t module_name[MAX_PATH];
@@ -142,7 +142,7 @@ struct common_processing_context {
     hexdump_data hdata;
     redirection_data rdata;
     char* command = nullptr;
-    info_context info_ctx{ nullptr, INVALID_ID };
+    inspect_context info_ctx{ nullptr, INVALID_ID };
 };
 
 struct search_data_info {
@@ -194,7 +194,7 @@ void print_help_search_common();
 void print_help_redirect_common();
 void print_help_hexdump_common();
 void print_help_list_common();
-void print_help_info_common();
+void print_help_inspect_common();
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* pattern);
 uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
 void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t> &bytes);

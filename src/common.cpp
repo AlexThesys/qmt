@@ -368,7 +368,7 @@ void print_help_main_common() {
     puts(">?\t\t\t - display redirection commands");
     puts("clear\t\t\t - clear screen");
     puts("l?\t\t\t - display list commands");
-    puts("i?\t\t\t - display info commands");
+    puts("i?\t\t\t - display inspection commands");
     puts("x?\t\t\t - display hexdump commands");
     puts("q | exit\t\t - quit program");
 }
@@ -406,11 +406,11 @@ void print_help_list_common() {
     puts("lmic\t\t\t - list committed memory regions info");
 }
 
-void print_help_info_common() {
+void print_help_inspect_common() {
     puts("\n------------------------------------");
-    puts("im@<address>\t\t - show memory region info");
-    puts("iM <name>\t\t - show module info");
-    puts("it <tid>\t\t - show thread info");
+    puts("im@<address>\t\t - inspect memory region");
+    puts("iM <name>\t\t - inspect module");
+    puts("it <tid>\t\t - inspect thread");
 }
 
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -642,7 +642,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 return c_continue;
             }
             ctx->info_ctx.memory_address = (const char*)p;
-            command = c_show_info_memory;
+            command = c_inspect_memory;
             break;
         }
         case 'M': {
@@ -666,7 +666,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 return c_continue;
             }
 
-            command = c_show_info_module;
+            command = c_inspect_module;
             break;
         }
         case 't': {
@@ -685,7 +685,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                     return c_continue;
                 }
             }
-            command = c_show_info_thread;
+            command = c_inspect_thread;
             break;
         }
         default:

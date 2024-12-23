@@ -423,8 +423,8 @@ static void print_help_list() {
     puts("------------------------------------\n");
 }
 
-static void print_help_info() {
-    print_help_info_common();
+static void print_help_inspect() {
+    print_help_inspect_common();
     puts("------------------------------------\n");
 }
 
@@ -568,7 +568,7 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         print_help_hexdump();
         break;
     case c_help_info:
-        print_help_info();
+        print_help_inspect();
         break;
     case c_help_traverse_heap:
         print_help_traverse_heap();
@@ -619,19 +619,19 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_show_info_memory:
+    case c_inspect_memory:
         try_redirect_output_to_file(&ctx->common);
         print_memory_info(ctx);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_show_info_module:
+    case c_inspect_module:
         try_redirect_output_to_file(&ctx->common);
         list_process_modules(ctx, true);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_show_info_thread:
+    case c_inspect_thread:
         try_redirect_output_to_file(&ctx->common);
         list_process_threads(ctx, true);
         puts("====================================\n");

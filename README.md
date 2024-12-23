@@ -34,9 +34,9 @@
 `> <file-path>` - redirect output to a file, overwrite data<br/>
 `>a <file-path>` - redirect output to a file, append data<br/>
 `> stdout` - redirect output to stdout<br/>
-`im@<address>` - show memory region info<br/>
-`iM <name>` - show module info<br/>
-`it <tid>` - show thread info<br/>
+`im@<address>` - inspect memory region<br/>
+`iM <name>` - inspect module<br/>
+`it <tid>` - inspect thread<br/>
 `lM`	- list process modules  
 `lt`	- list process threads  
 `lmi`	- list memory regions info  
