@@ -32,7 +32,7 @@
 `xd@<address>:<N>`	- hexdump N dwords at address  
 `xq@<address>:<N>`	- hexdump N qwords at address<br/>
 `> <file-path>` - redirect output to a file<br/>
-`> stdout` - redirect output to stdout<br/>  
+`> stdout` - redirect output to stdout<br/>
 `im@<address>` - show memory region info<br/>
 `lM`	- list process modules  
 `lt`	- list process threads  
