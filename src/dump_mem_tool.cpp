@@ -76,6 +76,8 @@ static void list_threads(const dump_processing_context* ctx);
 static void list_thread_registers(const dump_processing_context* ctx);
 static void list_memory_regions_info(const dump_processing_context* ctx, bool show_commited);
 static void print_memory_info(const dump_processing_context* ctx);
+static void print_module_info(const dump_processing_context* ctx);
+static void print_thread_info(const dump_processing_context* ctx);
 static void list_handle_descriptors(const dump_processing_context* ctx);
 static bool is_drive_ssd(const char* file_path);
 static void cache_memory_regions(dump_processing_context* ctx);
@@ -684,6 +686,11 @@ static void print_help_hexdump() {
     puts("------------------------------------\n");
 }
 
+static void print_help_info() {
+    print_help_info_common();
+    puts("------------------------------------\n");
+}
+
 static void print_help_list() {
     print_help_list_common();
     puts("------------------------------------");
@@ -795,6 +802,9 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
     case c_help_hexdump:
         print_help_hexdump();
         break;
+    case c_help_info:
+        print_help_info();
+        break;
     case c_search_pattern :
         wait_for_memory_regions_caching(&ctx->pages_caching_state);
         try_redirect_output_to_file(&ctx->common);
@@ -834,9 +844,21 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_print_info_memory:
+    case c_show_info_memory:
         try_redirect_output_to_file(&ctx->common);
         print_memory_info(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_show_info_module:
+        try_redirect_output_to_file(&ctx->common);
+        print_module_info(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_show_info_thread:
+        try_redirect_output_to_file(&ctx->common);
+        print_thread_info(ctx);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -1204,7 +1226,7 @@ static void print_memory_info(const dump_processing_context* ctx) {
     for (ULONG i = 0; i < memory_info_list->NumberOfEntries; ++i) {
         const MINIDUMP_MEMORY_INFO& mem_info = memory_info[i];
 
-        if (((ULONG64)ctx->common.mem_region.address < mem_info.BaseAddress) || ((ULONG64)ctx->common.mem_region.address >= (mem_info.BaseAddress + mem_info.RegionSize))) {
+        if (((ULONG64)ctx->common.info_ctx.memory_address < mem_info.BaseAddress) || ((ULONG64)ctx->common.info_ctx.memory_address >= (mem_info.BaseAddress + mem_info.RegionSize))) {
             continue;
         }
 
@@ -1232,6 +1254,41 @@ static void print_memory_info(const dump_processing_context* ctx) {
             memory_info[i].BaseAddress, memory_info[i].RegionSize,
             get_page_state(mem_info.State), get_page_protect(mem_info.Protect));
         print_page_type(mem_info.Type);
+        puts("");
+        break;
+    }
+}
+
+static void print_module_info(const dump_processing_context* ctx) {
+    for (ULONG i = 0, num_modules = ctx->m_data.size(); i < num_modules; i++) {
+        const module_data& m = ctx->m_data[i];
+        if (nullptr == wcsstr(m.name, ctx->common.info_ctx.module_name)) {
+            continue;
+        }
+        wprintf((LPWSTR)L"Module name: %s\n", m.name);
+        printf("Base of image: 0x%p | Size of image: 0x%04llx\n\n", m.base_of_image, m.size_of_image);
+        break;
+    }
+}
+
+static void print_thread_info(const dump_processing_context* ctx) {
+    for (ULONG i = 0, num_threads = ctx->t_data.size(); i < num_threads; i++) {
+        const thread_info_dump& thread = ctx->t_data[i];
+        if (thread.tid != ctx->common.info_ctx.tid) {
+            continue;
+        }
+        printf("ThreadID: 0x%04x | Priority Class: 0x%04x | Priority: 0x%04x | Stack Base: 0x%p\n\n",
+            thread.tid, thread.priority_class, thread.priority, (char*)thread.stack_base);
+        printf("RAX: 0x%p RBX: 0x%p RCX: 0x%p RDI: 0x%p RSI: 0x%p\n",
+            (char*)thread.context->Rax, (char*)thread.context->Rbx, (char*)thread.context->Rcx, (char*)thread.context->Rdx,
+            (char*)thread.context->Rdi, (char*)thread.context->Rsi);
+        printf("RSP: 0x%p RBP: 0x%p RIP: 0x%p RFLAGS: 0x%04x\t\tMXCSR: 0x%04x\n",
+            (char*)thread.context->Rsp, (char*)thread.context->Rbp, (char*)thread.context->Rip,
+            (char*)thread.context->EFlags, (char*)thread.context->MxCsr);
+        printf("R8:  0x%p R9:  0x%p R10: 0x%p R11: 0x%p\n",
+            (char*)thread.context->R8, (char*)thread.context->R9, (char*)thread.context->R10, (char*)thread.context->R11);
+        printf("R12: 0x%p R13: 0x%p R14: 0x%p R15: 0x%p\n",
+            (char*)thread.context->R11, (char*)thread.context->R12, (char*)thread.context->R13, (char*)thread.context->R14);
         puts("");
         break;
     }

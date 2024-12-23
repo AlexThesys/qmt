@@ -40,6 +40,8 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
 static bool test_selected_pid(proc_processing_context* ctx);
 static void print_memory_info(const proc_processing_context* ctx);
+static void print_module_info(const proc_processing_context* ctx);
+static void print_thread_info(const proc_processing_context* ctx);
 
 static void find_pattern(search_context_proc* search_ctx) {
     HANDLE process = search_ctx->process;
@@ -423,6 +425,11 @@ static void print_help_list() {
     puts("------------------------------------\n");
 }
 
+static void print_help_info() {
+    print_help_info_common();
+    puts("------------------------------------\n");
+}
+
 static void print_help_traverse_heap() {
     puts("\n------------------------------------");
     puts("th\t\t\t - travers process heaps (slow)");
@@ -562,6 +569,9 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
     case c_help_hexdump:
         print_help_hexdump();
         break;
+    case c_help_info:
+        print_help_info();
+        break;
     case c_help_traverse_heap:
         print_help_traverse_heap();
         break;
@@ -611,9 +621,21 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_print_info_memory:
+    case c_show_info_memory:
         try_redirect_output_to_file(&ctx->common);
         print_memory_info(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_show_info_module:
+        try_redirect_output_to_file(&ctx->common);
+        print_module_info(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_show_info_thread:
+        try_redirect_output_to_file(&ctx->common);
+        print_thread_info(ctx);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -1165,7 +1187,7 @@ static void print_memory_info(const proc_processing_context* ctx) {
     }
 
     MEMORY_BASIC_INFORMATION r_info;
-    if (VirtualQueryEx(process, ctx->common.mem_region.address, &r_info, sizeof(r_info)) != sizeof(r_info)) {
+    if (VirtualQueryEx(process, ctx->common.info_ctx.memory_address, &r_info, sizeof(r_info)) != sizeof(r_info)) {
         fprintf(stderr, "Error virtual query ex failed.\n");
         CloseHandle(process);
         return;
@@ -1174,7 +1196,7 @@ static void print_memory_info(const proc_processing_context* ctx) {
     WIN32_MEMORY_REGION_INFORMATION mem_info = { 0 };
     SIZE_T return_length = 0;
     BOOL status = QueryVirtualMemoryInformation
-                        (process, ctx->common.mem_region.address, MemoryRegionInfo, &mem_info, sizeof(mem_info), &return_length);
+                        (process, ctx->common.info_ctx.memory_address, MemoryRegionInfo, &mem_info, sizeof(mem_info), &return_length);
 
     puts("====================================\n");
     if (r_info.Type == MEM_IMAGE) {
@@ -1197,4 +1219,74 @@ static void print_memory_info(const proc_processing_context* ctx) {
         print_region_flags(&mem_info);
     }
     CloseHandle(process);
+}
+
+static void print_module_info(const proc_processing_context* ctx) {
+    HANDLE hModuleSnap = INVALID_HANDLE_VALUE;
+    MODULEENTRY32 me32;
+
+    // Take a snapshot of all modules in the specified process.
+    hModuleSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, ctx->pid);
+    if (hModuleSnap == INVALID_HANDLE_VALUE) {
+        print_error(TEXT("CreateToolhelp32Snapshot (of modules)"));
+        return;
+    }
+
+    // Set the size of the structure before using it.
+    me32.dwSize = sizeof(MODULEENTRY32);
+
+    // Retrieve information about the first module,
+    // and exit if unsuccessful
+    if (!Module32First(hModuleSnap, &me32)) {
+        print_error(TEXT("Module32First"));  // show cause of failure
+        CloseHandle(hModuleSnap);           // clean the snapshot object
+        return;
+    }
+
+    // Now walk the module list of the process,
+    // and display information about each module
+    printf("====================================");
+    do {
+        if (nullptr == wcsstr(me32.szModule, ctx->common.info_ctx.module_name)) {
+            continue;
+        }
+
+        _tprintf(TEXT("\n\n     MODULE NAME:     %s"), me32.szModule);
+        _tprintf(TEXT("\n     Executable     = %s"), me32.szExePath);
+        _tprintf(TEXT("\n     Process ID     = 0x%08X"), me32.th32ProcessID);
+        _tprintf(TEXT("\n     Ref count (g)  = 0x%04X"), me32.GlblcntUsage);
+        _tprintf(TEXT("\n     Ref count (p)  = 0x%04X"), me32.ProccntUsage);
+        _tprintf(TEXT("\n     Base address   = 0x%08X"), (DWORD)me32.modBaseAddr);
+        _tprintf(TEXT("\n     Base size      = 0x%x"), me32.modBaseSize);
+
+        break;
+    } while (Module32Next(hModuleSnap, &me32));
+
+    puts("\n");
+
+    CloseHandle(hModuleSnap);
+    return;
+}
+
+static void print_thread_info(const proc_processing_context* ctx) {
+    std::vector<thread_info_proc> thread_info;
+
+    if (!gather_thread_info(ctx->pid, thread_info)) {
+        return;
+    }
+
+    printf("====================================");
+    for (auto& ti : thread_info) {
+        if (ti.thread_id != ctx->common.info_ctx.tid) {
+            continue;
+        }
+        _tprintf(TEXT("\n\n     THREAD ID         = 0x%08X"), ti.thread_id);
+        _tprintf(TEXT("\n     Base priority     = %d"), ti.base_prio);
+        _tprintf(TEXT("\n     Delta priority    = %d"), ti.delta_prio);
+        _tprintf(TEXT("\n     Stack Base        = 0x%p"), ti.stack_ptr);
+        _tprintf(TEXT("\n     Stack Size        = 0x%llx"), ti.stack_size);
+        _tprintf(TEXT("\n"));
+        break;
+    }
+    puts("");
 }

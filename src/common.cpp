@@ -368,7 +368,7 @@ void print_help_main_common() {
     puts(">?\t\t\t - display redirection commands");
     puts("clear\t\t\t - clear screen");
     puts("l?\t\t\t - display list commands");
-    puts("im@<address>\t\t - show memory region info");
+    puts("i?\t\t\t - display info commands");
     puts("x?\t\t\t - display hexdump commands");
     puts("q | exit\t\t - quit program");
 }
@@ -404,6 +404,13 @@ void print_help_list_common() {
     puts("lt\t\t\t - list process threads");
     puts("lmi\t\t\t - list memory regions info");
     puts("lmic\t\t\t - list committed memory regions info");
+}
+
+void print_help_info_common() {
+    puts("\n------------------------------------");
+    puts("im@<address>\t\t - show memory region info");
+    puts("iM <name>\t\t - show module info");
+    puts("it <tid>\t\t - show thread info");
 }
 
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -622,15 +629,69 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         ctx->hdata.mode = mode;
 
         command = c_print_hexdump;
-    } else if ((cmd[0] == 'i') && (cmd[1] == 'm')) {
-        void* p = nullptr;
-        int res = sscanf_s(cmd+2, " @ %p", &p);
-        if (res < 1) {
-            fprintf(stderr, "Error parsing the input.\n");
+    } else if (cmd[0] == 'i') {
+        if (cmd[1] == '?') {
+            return c_help_info;
+        }
+        switch (cmd[1]) {
+        case 'm': {
+            void* p = nullptr;
+            int res = sscanf_s(cmd + 2, " @ %p", &p);
+            if (res < 1) {
+                fprintf(stderr, "Error parsing the input.\n");
+                return c_continue;
+            }
+            ctx->info_ctx.memory_address = (const char*)p;
+            command = c_show_info_memory;
+            break;
+        }
+        case 'M': {
+            memset(ctx->info_ctx.module_name, 0, sizeof(ctx->info_ctx.module_name));
+            char buffer[MAX_PATH];
+            memset(buffer, 0, sizeof(buffer));
+            int res = sscanf_s(cmd + 2, " %s", buffer, sizeof(buffer));
+            if (res < 1) {
+                fprintf(stderr, "Error parsing the input.\n");
+                return c_continue;
+            }
+            const int wc_size = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, NULL, 0);
+            if (wc_size && (wc_size <= _countof(ctx->info_ctx.module_name))) {
+                int result = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, ctx->info_ctx.module_name, wc_size);
+                if (result == 0) {
+                    fprintf(stderr, "Error converting to wide character string: %s\n", buffer);
+                    return c_continue;
+                }
+            } else {
+                fprintf(stderr, "Module name exceeds maximum length: %s\n", buffer);
+                return c_continue;
+            }
+
+            command = c_show_info_module;
+            break;
+        }
+        case 't': {
+            int res = sscanf_s(cmd + 2, " 0x%x", &ctx->info_ctx.tid);
+            if (res < 1) {
+                char ch = 0;
+                int res = sscanf_s(cmd + 2, " %x%c", &ctx->info_ctx.tid, &ch);
+                if (res < 2) {
+                    res = sscanf_s(cmd + 2, " @%d", &ctx->info_ctx.tid);
+                    if (res < 1) {
+                        fprintf(stderr, "Error parsing the input.\n");
+                        return c_continue;
+                    }
+                } else if (ch != 'h') {
+                    fprintf(stderr, "Error parsing the input.\n");
+                    return c_continue;
+                }
+            }
+            command = c_show_info_thread;
+            break;
+        }
+        default:
+            fprintf(stderr, unknown_command);
             return c_continue;
         }
-        ctx->mem_region.address = (const char*)p;
-        command = c_print_info_memory;
     } else {
         command = c_not_set;
     }
