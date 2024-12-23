@@ -384,7 +384,8 @@ void print_help_search_common() {
 
 void print_help_redirect_common() {
     puts("\n------------------------------------");
-    puts("> <file-path>\t\t - redirect output to a file");
+    puts("> <file-path>\t\t - redirect output to a file, overwrite data");
+    puts(">a <file-path>\t\t - redirect output to a file, append data");
     puts("> stdout\t\t - redirect output to stdout");
 }
 
@@ -437,7 +438,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             ctx->rdata.append = false;
         } else {
             ctx->rdata.redirect = true;
-            ctx->rdata.append = false;
+            ctx->rdata.append = (cmd[1] == 'a');
             memset(ctx->rdata.filepath, 0, sizeof(ctx->rdata.filepath));
             memcpy_s(ctx->rdata.filepath, sizeof(ctx->rdata.filepath), filepath, strlen(filepath));
         }
