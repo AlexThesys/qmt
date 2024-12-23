@@ -834,7 +834,7 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_print_memory_info:
+    case c_print_info_memory:
         try_redirect_output_to_file(&ctx->common);
         print_memory_info(ctx);
         puts("====================================\n");

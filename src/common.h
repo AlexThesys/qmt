@@ -79,7 +79,7 @@ enum input_command {
     c_list_memory_regions_info,
     c_list_memory_regions_info_committed,
     c_list_handles,
-    c_print_memory_info,
+    c_print_info_memory,
     c_travers_heap,
     c_travers_heap_calc_entropy,
     c_travers_heap_blocks,

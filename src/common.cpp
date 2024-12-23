@@ -368,7 +368,7 @@ void print_help_main_common() {
     puts(">?\t\t\t - display redirection commands");
     puts("clear\t\t\t - clear screen");
     puts("l?\t\t\t - display list commands");
-    puts("mi@<address>\t\t - print memory region info");
+    puts("im@<address>\t\t - show memory region info");
     puts("x?\t\t\t - display hexdump commands");
     puts("q | exit\t\t - quit program");
 }
@@ -621,15 +621,15 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         ctx->hdata.mode = mode;
 
         command = c_print_hexdump;
-    } else if ((cmd[0] == 'm') && (cmd[1] == 'i')) {
+    } else if ((cmd[0] == 'i') && (cmd[1] == 'm')) {
         void* p = nullptr;
-        int res = sscanf_s(cmd, "mi @ %p", &p);
+        int res = sscanf_s(cmd+2, " @ %p", &p);
         if (res < 1) {
             fprintf(stderr, "Error parsing the input.\n");
             return c_continue;
         }
         ctx->mem_region.address = (const char*)p;
-        command = c_print_memory_info;
+        command = c_print_info_memory;
     } else {
         command = c_not_set;
     }

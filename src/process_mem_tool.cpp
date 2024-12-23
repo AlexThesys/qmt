@@ -95,7 +95,7 @@ static void find_pattern(search_context_proc* search_ctx) {
                         printf("Module name: %s\n", module_name);
                     }
                 }
-                printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+                printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
                     r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
                 print_page_type(r_info.Type);
                 if (!res) {
@@ -286,7 +286,7 @@ static void print_search_results(search_context_proc& search_ctx) {
                     }
                 }
             }
-            printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+            printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
                 r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
             print_page_type(r_info.Type);
 
@@ -611,7 +611,7 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_print_memory_info:
+    case c_print_info_memory:
         try_redirect_output_to_file(&ctx->common);
         print_memory_info(ctx);
         puts("====================================\n");
@@ -1066,7 +1066,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
                 printf("Module name: %s\n", module_name);
             }
         }
-        printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+        printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
             r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
         print_page_type(r_info.Type);
         puts("");
@@ -1188,7 +1188,7 @@ static void print_memory_info(const proc_processing_context* ctx) {
            wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tid);
        }
     }
-    printf("Base addres: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+    printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
         r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
     print_page_type(r_info.Type);
     if (status) {
