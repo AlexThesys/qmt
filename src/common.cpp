@@ -10,7 +10,7 @@ const char* command_not_implemented = "Command not implemented.\n";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.3.5";
+static const char* program_version = "Version 0.3.6";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = INVALID_THREAD_NUM;

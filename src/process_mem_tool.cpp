@@ -1116,7 +1116,16 @@ static bool test_selected_pid(proc_processing_context* ctx) {
     DWORD flags;
     GetProcessWorkingSetSizeEx(process, &min_working_set, &max_working_set, &flags);
 
-    printf("Working set: min - 0x%llx bytes | max - 0x%llx bytes\n\n", min_working_set, max_working_set);
+    printf("Working set: min - 0x%llx bytes | max - 0x%llx bytes\n", min_working_set, max_working_set);
+
+    APP_MEMORY_INFORMATION mem_info;
+    if (GetProcessInformation(process, ProcessAppMemoryInfo, &mem_info, sizeof(mem_info))) {
+        printf("Available Commit:\t\t 0x%08llx bytes\n", mem_info.AvailableCommit);
+        printf("Private Commit Usage:\t\t 0x%08llx bytes\n", mem_info.PrivateCommitUsage);
+        printf("Peak Private Commit Usage:\t 0x%08llx bytes\n", mem_info.PeakPrivateCommitUsage);
+        printf("Total Commit Usage:\t\t 0x%08llx bytes\n", mem_info.TotalCommitUsage);   
+    }
+    puts("");
 
     CloseHandle(process);
     return true;
