@@ -1,8 +1,6 @@
 #include "common.h"
 #include <dbghelp.h>
 
-#pragma comment(lib, "dbghelp.lib")
-
 struct module_data {
     LPWSTR name;
     char* base_of_image;
@@ -877,6 +875,12 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_inspect_image:
+        try_redirect_output_to_file(&ctx->common);
+        print_image_info(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
     case c_list_modules:
         try_redirect_output_to_file(&ctx->common);
         list_modules(ctx);
@@ -1241,7 +1245,7 @@ static void print_memory_info(const dump_processing_context* ctx) {
     for (ULONG i = 0; i < memory_info_list->NumberOfEntries; ++i) {
         const MINIDUMP_MEMORY_INFO& mem_info = memory_info[i];
 
-        if (((ULONG64)ctx->common.info_ctx.memory_address < mem_info.BaseAddress) || ((ULONG64)ctx->common.info_ctx.memory_address >= (mem_info.BaseAddress + mem_info.RegionSize))) {
+        if (((ULONG64)ctx->common.i_ctx.memory_address < mem_info.BaseAddress) || ((ULONG64)ctx->common.i_ctx.memory_address >= (mem_info.BaseAddress + mem_info.RegionSize))) {
             continue;
         }
 
@@ -1277,7 +1281,7 @@ static void print_memory_info(const dump_processing_context* ctx) {
 static void print_module_info(const dump_processing_context* ctx) {
     for (ULONG i = 0, num_modules = ctx->m_data.size(); i < num_modules; i++) {
         const module_data& m = ctx->m_data[i];
-        if (nullptr == wcsstr(m.name, ctx->common.info_ctx.module_name)) {
+        if (nullptr == wcsstr(m.name, ctx->common.i_ctx.module_name)) {
             continue;
         }
         wprintf((LPWSTR)L"Module name: %s\n", m.name);
@@ -1289,7 +1293,7 @@ static void print_module_info(const dump_processing_context* ctx) {
 static void print_thread_info(const dump_processing_context* ctx) {
     for (ULONG i = 0, num_threads = ctx->t_data.size(); i < num_threads; i++) {
         const thread_info_dump& thread = ctx->t_data[i];
-        if (thread.tid != ctx->common.info_ctx.tid) {
+        if (thread.tid != ctx->common.i_ctx.tid) {
             continue;
         }
         printf("ThreadID: 0x%04x | Priority Class: 0x%04x | Priority: 0x%04x | Stack Base: 0x%p\n\n",

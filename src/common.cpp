@@ -1,5 +1,9 @@
 #include "common.h"
 
+#include <dbghelp.h>
+
+#pragma comment(lib, "dbghelp.lib")
+
 const char* page_state[] = { "MEM_COMMIT", "MEM_FREE", "MEM_RESERVE" };
 const char* page_type[] = { "MEM_IMAGE", "MEM_MAPPED", "MEM_PRIVATE" };
 const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUTE_READWRITE", "PAGE_EXECUTE_WRITECOPY", "PAGE_NOACCESS", "PAGE_READONLY",
@@ -414,6 +418,7 @@ void print_help_inspect_common() {
     puts("im@<address>\t\t - inspect memory region");
     puts("iM <name>\t\t - inspect module");
     puts("it <tid>\t\t - inspect thread");
+    puts("ii <file-path>\t\t - inspect image");
 }
 
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -687,12 +692,13 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 fprintf(stderr, "Error parsing the input.\n");
                 return c_continue;
             }
-            ctx->info_ctx.memory_address = (const char*)p;
+            ctx->i_ctx.memory_address = (const char*)p;
             command = c_inspect_memory;
             break;
         }
+        case 'i' : // same code as 'M'
         case 'M': {
-            memset(ctx->info_ctx.module_name, 0, sizeof(ctx->info_ctx.module_name));
+            memset(ctx->i_ctx.module_name, 0, sizeof(ctx->i_ctx.module_name));
             char buffer[MAX_PATH];
             memset(buffer, 0, sizeof(buffer));
             int res = sscanf_s(cmd + 2, " %s", buffer, sizeof(buffer));
@@ -701,8 +707,8 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 return c_continue;
             }
             const int wc_size = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, NULL, 0);
-            if (wc_size && (wc_size <= _countof(ctx->info_ctx.module_name))) {
-                int result = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, ctx->info_ctx.module_name, wc_size);
+            if (wc_size && (wc_size <= _countof(ctx->i_ctx.module_name))) {
+                int result = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, ctx->i_ctx.module_name, wc_size);
                 if (result == 0) {
                     fprintf(stderr, "Error converting to wide character string: %s\n", buffer);
                     return c_continue;
@@ -712,16 +718,21 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 return c_continue;
             }
 
-            command = c_inspect_module;
+            if (cmd[1] == 'M') {
+                command = c_inspect_module;
+            } else { // if cmd[1] == 'i'
+                command = c_inspect_image;
+            }
+
             break;
         }
         case 't': {
-            int res = sscanf_s(cmd + 2, " 0x%x", &ctx->info_ctx.tid);
+            int res = sscanf_s(cmd + 2, " 0x%x", &ctx->i_ctx.tid);
             if (res < 1) {
                 char ch = 0;
-                int res = sscanf_s(cmd + 2, " %x%c", &ctx->info_ctx.tid, &ch);
+                int res = sscanf_s(cmd + 2, " %x%c", &ctx->i_ctx.tid, &ch);
                 if (res < 2) {
-                    res = sscanf_s(cmd + 2, " %d", &ctx->info_ctx.tid);
+                    res = sscanf_s(cmd + 2, " %d", &ctx->i_ctx.tid);
                     if (res < 1) {
                         fprintf(stderr, "Error parsing the input.\n");
                         return c_continue;
@@ -891,4 +902,85 @@ void redirect_output_to_stdout(common_processing_context* ctx) {
     if (0 != freopen_s(&console, "CONOUT$", "w", stdout)) {
         fprintf(stderr, "*** Failed redirecting the output to stdout.\n");
     }
+}
+
+static void print_section_headers(PIMAGE_SECTION_HEADER section_headers, WORD number_of_sections) {
+    printf("\nIMAGE_SECTION_HEADER\n");
+    for (int i = 0; i < number_of_sections; i++) {
+        printf("Section %d:\n", i + 1);
+        printf("  Name: %.8s\n", section_headers[i].Name);
+        printf("  VirtualSize: 0x%X\n", section_headers[i].Misc.VirtualSize);
+        printf("  VirtualAddress: 0x%X\n", section_headers[i].VirtualAddress);
+        printf("  SizeOfRawData: 0x%X\n", section_headers[i].SizeOfRawData);
+        printf("  PointerToRawData: 0x%X\n", section_headers[i].PointerToRawData);
+        printf("  Characteristics: 0x%X\n", section_headers[i].Characteristics);
+    }
+}
+
+void print_image_info(const common_processing_context* ctx) {
+    HANDLE file_handle = CreateFile(ctx->i_ctx.module_name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file_handle == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "Error opening file: %lu\n", GetLastError());
+        return;
+    }
+    
+    HANDLE mapping_handle = CreateFileMapping(file_handle, NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!mapping_handle) {
+        fprintf(stderr, "Error creating file mapping: %lu\n", GetLastError());
+        CloseHandle(file_handle);
+        return;
+    }
+    
+    LPVOID base_address = MapViewOfFile(mapping_handle, FILE_MAP_READ, 0, 0, 0);
+    if (!base_address) {
+        fprintf(stderr, "Error mapping view of file: %lu\n", GetLastError());
+        CloseHandle(mapping_handle);
+        CloseHandle(file_handle);
+        return;
+    }
+    
+    PIMAGE_NT_HEADERS nt_headers = ImageNtHeader(base_address);
+    if (!nt_headers) {
+        fprintf(stderr, "Invalid PE file\n");
+        UnmapViewOfFile(base_address);
+        CloseHandle(mapping_handle);
+        CloseHandle(file_handle);
+        return;
+    }
+    
+    printf("IMAGE_NT_HEADERS\n");
+    printf("Signature: 0x%X\n", nt_headers->Signature);
+    printf("FileHeader.Machine: 0x%X\n", nt_headers->FileHeader.Machine);
+    printf("FileHeader.NumberOfSections: %d\n", nt_headers->FileHeader.NumberOfSections);
+    printf("FileHeader.TimeDateStamp: 0x%X\n", nt_headers->FileHeader.TimeDateStamp);
+    printf("FileHeader.PointerToSymbolTable: 0x%X\n", nt_headers->FileHeader.PointerToSymbolTable);
+    printf("FileHeader.NumberOfSymbols: %d\n", nt_headers->FileHeader.NumberOfSymbols);
+    printf("FileHeader.SizeOfOptionalHeader: %d\n", nt_headers->FileHeader.SizeOfOptionalHeader);
+    printf("FileHeader.Characteristics: 0x%X\n", nt_headers->FileHeader.Characteristics);
+    
+    if (nt_headers->FileHeader.SizeOfOptionalHeader == 0) {
+        fprintf(stderr, "No optional header present.\n");
+        UnmapViewOfFile(base_address);
+        CloseHandle(mapping_handle);
+        CloseHandle(file_handle);
+        return;
+    }
+    
+    printf("\nIMAGE_OPTIONAL_HEADER\n");
+    PIMAGE_OPTIONAL_HEADER optional_header = &nt_headers->OptionalHeader;
+    printf("Magic: 0x%X\n", optional_header->Magic);
+    printf("MajorLinkerVersion: %d\n", optional_header->MajorLinkerVersion);
+    printf("MinorLinkerVersion: %d\n", optional_header->MinorLinkerVersion);
+    printf("SizeOfCode: 0x%X\n", optional_header->SizeOfCode);
+    printf("AddressOfEntryPoint: 0x%X\n", optional_header->AddressOfEntryPoint);
+    printf("ImageBase: 0x%X\n", optional_header->ImageBase);
+    printf("SectionAlignment: 0x%X\n", optional_header->SectionAlignment);
+    printf("FileAlignment: 0x%X\n", optional_header->FileAlignment);
+    
+    PIMAGE_SECTION_HEADER section_headers = (PIMAGE_SECTION_HEADER)((DWORD_PTR)optional_header + nt_headers->FileHeader.SizeOfOptionalHeader);
+    print_section_headers(section_headers, nt_headers->FileHeader.NumberOfSections);
+    
+    UnmapViewOfFile(base_address);
+    CloseHandle(mapping_handle);
+    CloseHandle(file_handle);
 }

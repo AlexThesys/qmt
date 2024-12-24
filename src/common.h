@@ -84,6 +84,7 @@ enum input_command {
     c_inspect_memory,
     c_inspect_module,
     c_inspect_thread,
+    c_inspect_image,
     c_print_info_thread_registers,
     c_travers_heap,
     c_travers_heap_calc_entropy,
@@ -156,7 +157,7 @@ struct common_processing_context {
     hexdump_data hdata;
     redirection_data rdata;
     char* command = nullptr;
-    inspect_context info_ctx{ nullptr, INVALID_ID };
+    inspect_context i_ctx{ nullptr, INVALID_ID };
 };
 
 struct search_data_info {
@@ -214,6 +215,7 @@ uint64_t prepare_matches(const common_processing_context *ctx, std::vector<searc
 void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t length);
 void try_redirect_output_to_file(common_processing_context* ctx);
 void redirect_output_to_stdout(common_processing_context* ctx);
+void print_image_info(const common_processing_context* ctx);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))

@@ -559,7 +559,7 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
 }
 
 static void execute_command(input_command cmd, proc_processing_context *ctx) {
-    const bool pid_required = (cmd > c_help_commands_number) && (cmd != c_list_pids);
+    const bool pid_required = (cmd > c_help_commands_number) && (cmd != c_list_pids) && (cmd != c_inspect_image);
     if (pid_required && (ctx->pid == INVALID_ID)) {
         fprintf(stderr, "Select the PID first!\n");
         return;
@@ -648,6 +648,12 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
     case c_inspect_thread:
         try_redirect_output_to_file(&ctx->common);
         list_process_threads(ctx, true);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_inspect_image:
+        try_redirect_output_to_file(&ctx->common);
+        print_image_info(&ctx->common);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -798,7 +804,7 @@ static int list_process_modules(const proc_processing_context* ctx, bool show_se
     // and display information about each module
     printf("====================================");
     do {
-        if (show_selected && (nullptr == wcsstr(me32.szModule, ctx->common.info_ctx.module_name))) {
+        if (show_selected && (nullptr == wcsstr(me32.szModule, ctx->common.i_ctx.module_name))) {
             continue;
         }
 
@@ -906,7 +912,7 @@ static int list_process_threads(const proc_processing_context* ctx, bool show_se
 
     printf("====================================");
     for (auto& ti : thread_info) {
-        if (show_selected && (ti.thread_id != ctx->common.info_ctx.tid)) {
+        if (show_selected && (ti.thread_id != ctx->common.i_ctx.tid)) {
             continue;
         }
         _tprintf(TEXT("\n\n     THREAD ID         = 0x%08X"), ti.thread_id);
@@ -1211,7 +1217,7 @@ static void print_memory_info(const proc_processing_context* ctx) {
     }
 
     MEMORY_BASIC_INFORMATION r_info;
-    if (VirtualQueryEx(process, ctx->common.info_ctx.memory_address, &r_info, sizeof(r_info)) != sizeof(r_info)) {
+    if (VirtualQueryEx(process, ctx->common.i_ctx.memory_address, &r_info, sizeof(r_info)) != sizeof(r_info)) {
         fprintf(stderr, "Error virtual query ex failed.\n");
         CloseHandle(process);
         return;
@@ -1220,7 +1226,7 @@ static void print_memory_info(const proc_processing_context* ctx) {
     WIN32_MEMORY_REGION_INFORMATION mem_info = { 0 };
     SIZE_T return_length = 0;
     BOOL status = QueryVirtualMemoryInformation
-                        (process, ctx->common.info_ctx.memory_address, MemoryRegionInfo, &mem_info, sizeof(mem_info), &return_length);
+                        (process, ctx->common.i_ctx.memory_address, MemoryRegionInfo, &mem_info, sizeof(mem_info), &return_length);
 
     puts("====================================\n");
     if (r_info.Type == MEM_IMAGE) {

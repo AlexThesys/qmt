@@ -39,6 +39,7 @@
 `im@<address>` - inspect memory region<br/>
 `iM <name>` - inspect module<br/>
 `it <tid>` - inspect thread<br/>
+`ii <file-path>` - inspect image<br/>
 `lM`	- list process modules  
 `lt`	- list process threads  
 `lmi`	- list memory regions info  
