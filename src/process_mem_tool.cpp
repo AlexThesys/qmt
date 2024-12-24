@@ -41,6 +41,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
 static bool test_selected_pid(proc_processing_context* ctx);
 static void print_memory_info(const proc_processing_context* ctx);
 static void data_block_calculate(proc_processing_context* ctx);
+static void print_module_info(const proc_processing_context* ctx, const wchar_t* module_name);
 
 static void find_pattern(search_context_proc* search_ctx) {
     HANDLE process = search_ctx->process;
@@ -768,7 +769,7 @@ static int list_process_modules(const proc_processing_context* ctx, bool show_se
     // and display information about each module
     printf("====================================");
     do {
-        if (show_selected && (nullptr == wcsstr(me32.szModule, ctx->common.i_data.module_name))) {
+        if (show_selected && (0 != _wcsicmp(me32.szModule, ctx->common.i_data.module_name))) {
             continue;
         }
 
@@ -777,9 +778,10 @@ static int list_process_modules(const proc_processing_context* ctx, bool show_se
         _tprintf(TEXT("\n     Process ID     = 0x%08X"), me32.th32ProcessID);
         _tprintf(TEXT("\n     Ref count (g)  = 0x%04X"), me32.GlblcntUsage);
         _tprintf(TEXT("\n     Ref count (p)  = 0x%04X"), me32.ProccntUsage);
-        _tprintf(TEXT("\n     Base address   = 0x%p"), (DWORD)me32.modBaseAddr);
+        _tprintf(TEXT("\n     Base address   = 0x%p"), me32.modBaseAddr);
         _tprintf(TEXT("\n     Base size      = 0x%x"), me32.modBaseSize);
         if (show_selected) {
+            print_module_info(ctx, me32.szModule);
             break;
         }
     } while (Module32Next(hModuleSnap, &me32));
@@ -1261,6 +1263,83 @@ static void data_block_calculate(proc_processing_context* ctx) {
     data_block_calculate_common(&ctx->common.cdata, buffer, bytes_to_read);
 
     free(buffer);
+
+    CloseHandle(process);
+}
+
+void print_module_info(const proc_processing_context* ctx, const wchar_t *module_name) {
+    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
+    if (process == NULL) {
+        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+        return;
+    }
+    HMODULE *modules = NULL;
+    DWORD cb_needed = 0;
+    MODULEINFO module_info;
+    wchar_t module_path[MAX_PATH];
+    BOOL module_found = FALSE;
+
+    // First call to get the number of modules
+    if (!EnumProcessModules(process, NULL, 0, &cb_needed)) {
+        fprintf(stderr, "Failed to enumerate modules for the process.\n");
+        CloseHandle(process);
+        return;
+    }
+
+    // Allocate memory for the module list
+    modules = (HMODULE *)malloc(cb_needed);
+    if (!modules) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        CloseHandle(process);
+        return;
+    }
+
+    // Second call to get the actual module handles
+    if (!EnumProcessModules(process, modules, cb_needed, &cb_needed)) {
+        fprintf(stderr, "Failed to enumerate modules for the process.\n");
+        CloseHandle(process);
+        free(modules);
+        return;
+    }
+
+    // Loop through the modules to find the one matching the provided name
+    for (unsigned int i = 0; i < (cb_needed / sizeof(HMODULE)); i++) {
+        // Get the module's full path
+        if (GetModuleFileNameExW(process, modules[i], module_path, sizeof(module_path) / sizeof(wchar_t))) {
+            // Check if the filename matches the requested module name
+            const wchar_t *filename = wcsrchr(module_path, L'\\'); // Get just the filename
+            if (filename) {
+                filename++; // Skip the backslash
+            } else {
+                filename = module_path; // No backslash, use the full path
+            }
+
+            if (_wcsicmp(filename, module_name) == 0) { // Case-insensitive comparison
+                module_found = TRUE;
+
+                // Retrieve module information
+                if (GetModuleInformation(process, modules[i], &module_info, sizeof(module_info))) {
+                    //wprintf(L"Module Name: %s\n", module_name);
+                    //wprintf(L"Base Address: %p\n", module_info.lpBaseOfDll);
+                    //wprintf(L"Size of Module: %lu bytes\n", (unsigned long)module_info.SizeOfImage);
+                    //wprintf(L"Entry Point: %p\n", module_info.EntryPoint);
+                    _tprintf(TEXT("\n     Entry point    = %p\n"), module_info.EntryPoint);
+                } else {
+                    if (g_show_failed_readings) {
+                        fwprintf(stderr, L"Failed to get module information for: %s\n", module_name);
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    if (!module_found) {
+        wprintf(L"Module not found: %s\n", module_name);
+    }
+
+    // Clean up
+    free(modules);
 
     CloseHandle(process);
 }
