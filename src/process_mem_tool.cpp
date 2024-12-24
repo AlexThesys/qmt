@@ -777,7 +777,7 @@ static int list_process_modules(const proc_processing_context* ctx, bool show_se
         _tprintf(TEXT("\n     Process ID     = 0x%08X"), me32.th32ProcessID);
         _tprintf(TEXT("\n     Ref count (g)  = 0x%04X"), me32.GlblcntUsage);
         _tprintf(TEXT("\n     Ref count (p)  = 0x%04X"), me32.ProccntUsage);
-        _tprintf(TEXT("\n     Base address   = 0x%08X"), (DWORD)me32.modBaseAddr);
+        _tprintf(TEXT("\n     Base address   = 0x%p"), (DWORD)me32.modBaseAddr);
         _tprintf(TEXT("\n     Base size      = 0x%x"), me32.modBaseSize);
         if (show_selected) {
             break;
@@ -1085,6 +1085,26 @@ static void print_error(TCHAR const* msg) {
     _ftprintf(stderr, TEXT("\n  WARNING: %s failed with error %d (%s)"), msg, eNum, sysMsg);
 }
 
+void print_process_memory_info(HANDLE process_handle) {
+    PROCESS_MEMORY_COUNTERS memory_counters;
+
+    if (GetProcessMemoryInfo(process_handle, &memory_counters, sizeof(memory_counters))) {
+        printf("Process Memory Information:\n");
+        printf("PageFaultCount:\t\t\t %lu\n", memory_counters.PageFaultCount);
+        printf("PeakWorkingSetSize:\t\t %lu bytes\n", memory_counters.PeakWorkingSetSize);
+        printf("WorkingSetSize:\t\t\t %lu bytes\n", memory_counters.WorkingSetSize);
+        printf("QuotaPeakPagedPoolUsage:\t %lu bytes\n", memory_counters.QuotaPeakPagedPoolUsage);
+        printf("QuotaPagedPoolUsage:\t\t %lu bytes\n", memory_counters.QuotaPagedPoolUsage);
+        printf("QuotaPeakNonPagedPoolUsage:\t %lu bytes\n", memory_counters.QuotaPeakNonPagedPoolUsage);
+        printf("QuotaNonPagedPoolUsage:\t\t %lu bytes\n", memory_counters.QuotaNonPagedPoolUsage);
+        printf("PagefileUsage:\t\t\t %lu bytes\n", memory_counters.PagefileUsage);
+        printf("PeakPagefileUsage:\t\t %lu bytes\n", memory_counters.PeakPagefileUsage);
+    } else {
+        fprintf(stderr, "Failed to retrieve process memory information. Error code: %lu\n", GetLastError());
+    }
+    puts("");
+}
+
 static bool test_selected_pid(proc_processing_context* ctx) {
     HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
     if (process == NULL) {
@@ -1095,21 +1115,22 @@ static bool test_selected_pid(proc_processing_context* ctx) {
 
     char proc_name[MAX_PATH];
     if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
-        printf("Process name: %s\n", proc_name);
+        printf("Process name: %s\n\n", proc_name);
     }
 
-    SIZE_T min_working_set, max_working_set;
-    DWORD flags;
-    GetProcessWorkingSetSizeEx(process, &min_working_set, &max_working_set, &flags);
-
-    printf("Working set: min - 0x%llx bytes | max - 0x%llx bytes\n", min_working_set, max_working_set);
-
+    print_process_memory_info(process);
+    {
+        SIZE_T min_working_set, max_working_set;
+        DWORD flags;
+        GetProcessWorkingSetSizeEx(process, &min_working_set, &max_working_set, &flags);
+        printf("Working set: min - %llu bytes | max - %llu bytes\n\n", min_working_set, max_working_set);
+    }
     APP_MEMORY_INFORMATION mem_info;
     if (GetProcessInformation(process, ProcessAppMemoryInfo, &mem_info, sizeof(mem_info))) {
-        printf("Available Commit:\t\t 0x%016llx bytes\n", mem_info.AvailableCommit);
-        printf("Private Commit Usage:\t\t 0x%016llx bytes\n", mem_info.PrivateCommitUsage);
-        printf("Peak Private Commit Usage:\t 0x%016llx bytes\n", mem_info.PeakPrivateCommitUsage);
-        printf("Total Commit Usage:\t\t 0x%016llx bytes\n", mem_info.TotalCommitUsage);   
+        printf("Available Commit:\t\t %llu bytes\n", mem_info.AvailableCommit);
+        printf("Private Commit Usage:\t\t %llu bytes\n", mem_info.PrivateCommitUsage);
+        printf("Peak Private Commit Usage:\t %llu bytes\n", mem_info.PeakPrivateCommitUsage);
+        printf("Total Commit Usage:\t\t %llu bytes\n", mem_info.TotalCommitUsage);   
     }
     puts("");
 
