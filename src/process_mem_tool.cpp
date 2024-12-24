@@ -385,6 +385,16 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
         return;
     }
 
+    switch (ctx->common.hdata.hex_op.op) {
+    case hexdump_op::ho_xor:
+        for (int i = 0, j = 0; i < bytes_to_read; i++, j = (j + 1) % ctx->common.hdata.hex_op.str_len) {
+            buffer[i] ^= ctx->common.hdata.hex_op.hex_str[j];
+        }
+        break;
+    default:
+        break;
+    }
+
     print_hexdump(ctx->common.hdata, buffer, bytes_to_read);
 
     free(buffer);

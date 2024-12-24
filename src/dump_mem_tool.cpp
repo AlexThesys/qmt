@@ -661,6 +661,16 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
         return;
     }
 
+    switch (ctx->common.hdata.hex_op.op) {
+    case hexdump_op::ho_xor:
+        for (int i = 0, j = 0, sz = bytes.size(); i < sz; i++, j = (j + 1) % ctx->common.hdata.hex_op.str_len) {
+            bytes[i] ^= ctx->common.hdata.hex_op.hex_str[j];
+        }
+        break;
+    default:
+        break;
+    }
+
     print_hexdump(ctx->common.hdata, bytes.data(), bytes.size());
 }
 

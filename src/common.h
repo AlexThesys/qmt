@@ -39,8 +39,9 @@
 #define NUM_WAITING_DOTS 0x10
 #define NEXT_DOT_INTERVAL 0x10
 #define WAIT_FOR_MS 400
-#define AVAIL_PHYS_MEM_FACTOR 0X04 // ?
+#define AVAIL_PHYS_MEM_FACTOR 0x04 // ?
 #define INVALID_ID ((DWORD)(-1))
+#define MAX_OP_HEX_STRING_LEN 0x40
 
 //#define DISABLE_STANDBY_LIST_PURGE
 
@@ -106,6 +107,11 @@ enum hexdump_mode {
     hm_qwords = 8
 };
 
+enum hexdump_op {
+    ho_none,
+    ho_xor,
+};
+
 struct search_range {
     const char* start;
     uint64_t length;
@@ -118,10 +124,17 @@ struct pattern_data {
     search_range range;
 };
 
+struct hexdump_operaton {
+    uint8_t hex_str[MAX_OP_HEX_STRING_LEN];
+    uint32_t str_len = 0;
+    hexdump_op op = hexdump_op::ho_none;
+};
+
 struct hexdump_data {
     const uint8_t* address;
     size_t num_to_display;
     hexdump_mode mode;
+    hexdump_operaton hex_op;
 };
 
 struct redirection_data {

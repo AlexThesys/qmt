@@ -395,6 +395,8 @@ void print_help_hexdump_common() {
     puts("xw@<address>:<N>\t - hexdump N words at address");
     puts("xd@<address>:<N>\t - hexdump N dwords at address");
     puts("xq@<address>:<N>\t - hexdump N qwords at address");
+    puts("* All hexdump commands can have an operation applied to the data.");
+    puts("x(b|w|d|q)@<address>:<N>^<hex-string> - XOR hex-data with a hex-string");
 }
 
 void print_help_list_common() {
@@ -608,13 +610,13 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         if (res < 2) {
             char ch = 0;
             int res = sscanf_s(cmd + 2, " @ %p:%llx%c", &p, &size, &ch);
-            if (res < 3) {
+            if (res < 3 || ch == '^') {
                 res = sscanf_s(cmd + 2, " @ %p:%lld", &p, &size);
                 if (res < 2) {
                     fprintf(stderr, "Error parsing the input.\n");
                     return c_continue;
                 }
-            } else if (ch != 'h') {
+            } else if (ch != 'h' && ch != '^') {
                 fprintf(stderr, "Error parsing the input.\n");
                 return c_continue;
             }
@@ -624,9 +626,49 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             return c_continue;
         }
 
+        // search for an operation
+        const int64_t cmd_len = strlen(cmd);
+        int op_position = -1;
+        hexdump_op op = hexdump_op::ho_none;
+        for (int i = 2; i < cmd_len; i++) {
+            if (cmd[i] == '^') {
+                op_position = i;
+                op = hexdump_op::ho_xor;
+                break;
+            }
+            //else if (cmd[i] == '&')
+        }
+        if (op != hexdump_op::ho_none) {
+            int64_t arg_len = cmd_len - op_position;
+            // skip whitespace if there is any
+            for (int i = 0; i < arg_len; i++) {
+                if (cmd[op_position + 1 + i] != ' ') {
+                    op_position += 1 + i;
+                    break;
+                }
+            }
+            arg_len = cmd_len - op_position;
+            if (arg_len > MAX_OP_HEX_STRING_LEN) {
+                fprintf(stderr, "EOperation hex string exceeds %d bytes.\n", MAX_OP_HEX_STRING_LEN / 2);
+                return c_continue;
+            }
+            search_data_info data;
+            data.pdata.pattern_len = arg_len;
+            memset(ctx->hdata.hex_op.hex_str, 0, sizeof(ctx->hdata.hex_op.hex_str));
+            memcpy(ctx->hdata.hex_op.hex_str, cmd + op_position, arg_len);
+            parse_input((char*)ctx->hdata.hex_op.hex_str, &data, input_type::it_hex_string);
+            if (data.type == it_error_type) {
+                fprintf(stderr, "Error parsing the operation hex string.\n");
+                return c_continue;
+            } else {
+                ctx->hdata.hex_op.str_len = data.pdata.pattern_len;
+            }
+        }
+
         ctx->hdata.address = (uint8_t*)p;
         ctx->hdata.num_to_display = size;
         ctx->hdata.mode = mode;
+        ctx->hdata.hex_op.op = op;
 
         command = c_print_hexdump;
     } else if (cmd[0] == 'i') {
