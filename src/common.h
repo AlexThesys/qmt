@@ -42,6 +42,7 @@
 #define AVAIL_PHYS_MEM_FACTOR 0x04 // ?
 #define INVALID_ID ((DWORD)(-1))
 #define MAX_OP_HEX_STRING_LEN 0x40
+#define MAX_CALCULATION_BLOCK_SIZE 0x1000000
 
 //#define DISABLE_STANDBY_LIST_PURGE
 
@@ -67,8 +68,9 @@ enum input_command {
     c_help_search,
     c_help_redirect,
     c_help_list,
-    c_help_info,
+    c_help_inspect,
     c_help_hexdump,
+    c_help_calculate,
     c_help_traverse_heap,
     c_help_commands_number,
     c_search_pattern,
@@ -86,7 +88,7 @@ enum input_command {
     c_inspect_module,
     c_inspect_thread,
     c_inspect_image,
-    c_print_info_thread_registers,
+    c_calculate,
     c_travers_heap,
     c_travers_heap_calc_entropy,
     c_travers_heap_blocks,
@@ -113,6 +115,12 @@ enum hexdump_op {
     ho_none,
     ho_xor,
     ho_and,
+};
+
+enum calculate_op {
+    co_none,
+    co_entropy,
+    co_crc32c
 };
 
 struct search_range {
@@ -147,10 +155,16 @@ struct redirection_data {
     char filepath[MAX_PATH];
 };
 
-struct inspect_context {
+struct inspect_data {
     const char* memory_address;
     DWORD tid;
     wchar_t module_name[MAX_PATH];
+};
+
+struct calculate_data {
+    const uint8_t* address;
+    uint64_t size;
+    calculate_op op;
 };
 
 struct common_processing_context {
@@ -158,7 +172,8 @@ struct common_processing_context {
     hexdump_data hdata;
     redirection_data rdata;
     char* command = nullptr;
-    inspect_context i_ctx{ nullptr, INVALID_ID };
+    inspect_data i_data{ nullptr, INVALID_ID };
+    calculate_data cdata{ nullptr, 0, calculate_op::co_none };
 };
 
 struct search_data_info {
@@ -217,6 +232,9 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
 void try_redirect_output_to_file(common_processing_context* ctx);
 void redirect_output_to_stdout(common_processing_context* ctx);
 void print_image_info(const common_processing_context* ctx);
+void print_help_calculate_common();
+uint32_t compute_crc32c(const uint8_t* data, size_t length);
+void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t size);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))
@@ -270,4 +288,36 @@ inline bool ranges_intersect(uint64_t a_start, uint64_t a_length, uint64_t b_sta
     const uint64_t b_end = b_start + b_length;
 
     return !(a_end < b_start || b_end < a_start);
+}
+
+// entropy
+
+#define NUM_VALUES 0x100
+
+struct entropy_context {
+    size_t freq[NUM_VALUES];
+};
+
+inline void entropy_init(entropy_context* ctx) {
+    memset(ctx->freq, 0, sizeof(ctx->freq));
+}
+
+inline void entropy_calculate_frequencies(entropy_context* ctx, const uint8_t* data, size_t  size) {
+    // Calculate frequencies of each byte
+    for (size_t i = 0; i < size; i++) {
+        ctx->freq[data[i]]++;
+    }
+}
+
+inline double entropy_compute(entropy_context* ctx, size_t size) {
+    double entropy = 0.0;
+    const double sz = (double)size;
+    for (int i = 0; i < NUM_VALUES; i++) {
+        if (ctx->freq[i] != 0) {
+            double probability = (double)ctx->freq[i] / sz;
+            entropy -= probability * log2(probability);
+        }
+    }
+
+    return entropy;
 }

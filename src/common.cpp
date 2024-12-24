@@ -1,5 +1,6 @@
 #include "common.h"
 
+#include <nmmintrin.h>
 #include <dbghelp.h>
 
 #pragma comment(lib, "dbghelp.lib")
@@ -11,10 +12,11 @@ const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUT
 
 const char* unknown_command = "Unknown command.\n";
 const char* command_not_implemented = "Command not implemented.\n";
+static const char* error_parsing_the_input = "Error parsing the input.\n";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.3.6";
+static const char* program_version = "Version 0.3.7";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = INVALID_THREAD_NUM;
@@ -370,6 +372,7 @@ void print_help_main_common() {
     puts("?\t\t\t - list commands (this message)");
     puts("/?\t\t\t - display search commands");
     puts(">?\t\t\t - display redirection commands");
+    puts("%?\t\t\t - display calculation commands");
     puts("clear\t\t\t - clear screen");
     puts("l?\t\t\t - display list commands");
     puts("i?\t\t\t - display inspection commands");
@@ -421,6 +424,13 @@ void print_help_inspect_common() {
     puts("ii <file-path>\t\t - inspect image");
 }
 
+void print_help_calculate_common() {
+    puts("\n------------------------------------");
+    puts("%entropy@<address>:<size>\t\t - calculate entropy of a block");
+    puts("%crc32c@<address>:<size>\t\t - calculate the crc32c of a block");
+    puts("*  Block's size is clamped to the memory region size");
+}
+
 inline search_scope_type set_scope(char ch) {
     search_scope_type scope_type;
     switch (ch) {
@@ -437,6 +447,99 @@ inline search_scope_type set_scope(char ch) {
         scope_type = mrt_none;
     }
     return scope_type;
+}
+
+static bool get_ptr_and_size(const char* cmd, void** p, int64_t* size) {
+    int res = sscanf_s(cmd, "@%p:0x%llx", p, size); // "%*[^@]@%p:%lld"
+    if (res < 2) {
+        char ch = 0;
+        int res = sscanf_s(cmd, "@%p:%llx%c", p, size, &ch);
+        if ((res == 3) && (ch == ' ')) {
+            res = sscanf_s(cmd, "@%p:%lld", p, size);
+            if (res < 2) {
+                fprintf(stderr, error_parsing_the_input);
+                return false;
+            }
+        } else if ((res != 3) || (ch != 'h')) {
+            fprintf(stderr, error_parsing_the_input);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool get_ptr_and_size_1(const char* cmd, void** p, int64_t* size) {
+    int res = sscanf_s(cmd, " @ %p:0x%llx", p, size); // "%*[^@]@%p:%lld"
+    if (res < 2) {
+        char ch = 0;
+        int res = sscanf_s(cmd, " @ %p:%llx%c", p, size, &ch);
+        if ((res == 3) && (ch == ' ')) {
+            res = sscanf_s(cmd, " @ %p:%lld", p, size);
+            if (res < 2) {
+                fprintf(stderr, error_parsing_the_input);
+                return false;
+            }
+        } else if ((res != 3) || (ch != 'h')) {
+            fprintf(stderr, error_parsing_the_input);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool get_ptr_and_size_2(const char* cmd, void** p, int64_t* size) {
+    int res = sscanf_s(cmd, " @ %p:0x%llx", p, size); // "%*[^@]@%p:%lld"
+    if (res < 2) {
+        char ch = 0;
+        int res = sscanf_s(cmd, " @ %p:%llx%c", p, size, &ch);
+        if (res < 3 || ch == '^' || ch == '&') {
+            res = sscanf_s(cmd, " @ %p:%lld", p, size);
+            if (res < 2) {
+                fprintf(stderr, error_parsing_the_input);
+                return false;
+            }
+        } else if (ch != 'h' && ch != '^' && ch != '&') {
+            fprintf(stderr, error_parsing_the_input);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool get_id(const char* cmd, DWORD* id) {
+    int res = sscanf_s(cmd, " 0x%x", id);
+    if (res < 1) {
+        char ch = 0;
+        int res = sscanf_s(cmd, " %x%c", id, &ch);
+        if (res < 2) {
+            res = sscanf_s(cmd, " %d", id);
+            if (res < 1) {
+                fprintf(stderr, error_parsing_the_input);
+                return false;
+            }
+        } else if (ch != 'h') {
+            fprintf(stderr, error_parsing_the_input);
+            return false;
+        }
+    }
+    return true;
+}
+
+inline const char* find_char(const char* buf, size_t len, char ch) {
+    for (size_t i = 0; i < len; i++) {
+        if (buf[i] == ch) {
+            return buf + i;
+        }
+    }
+    return nullptr;
+}
+
+inline int skip_whitespace(const char* buf, size_t len) {
+    for (int i = 0; i < len; i++) {
+        if (buf[i + 1] != ' ') {
+            return i + 1;
+        }
+    }
 }
 
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -550,23 +653,9 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
 
                 int64_t size = 0;
                 void* p = nullptr;
-                {
-                    int res = sscanf_s(cmd + i, "@%p:0x%llx", &p, &size); // "%*[^@]@%p:%lld"
-                    if (res < 2) {
-                        char ch = 0;
-                        int res = sscanf_s(cmd + i, "@%p:%llx%c", &p, &size, &ch);
-                        if ((res == 3) && (ch == ' ')) {
-                            res = sscanf_s(cmd + i, "@%p:%lld", &p, &size);
-                            if (res < 2) {
-                                fprintf(stderr, "Error parsing the input.\n");
-                                return c_continue;
-                            }
-                        }
-                        else if ((res != 3) || (ch != 'h')) {
-                            fprintf(stderr, "Error parsing the input.\n");
-                            return c_continue;
-                        }
-                    }
+                if (!get_ptr_and_size(cmd + i, &p, &size)) {
+                    fprintf(stderr, error_parsing_the_input);
+                    return c_continue;
                 }
                 if ((size > MAX_RANGE_LENGTH) || (size <= 0)) {
                     fprintf(stderr, "Invalid number of bytes to display. The limit is 0x%x\n", MAX_BYTE_TO_HEXDUMP);
@@ -579,14 +668,14 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 break;
             }
             default:
-                puts(unknown_command);
+                fprintf(stderr, unknown_command);
                 return c_continue;
             }
         }
 
         if (command == c_search_pattern_in_registers) {
             if ((in_type != input_type::it_hex_value) || (scope_type != search_scope_type::mrt_all)) {
-                puts(unknown_command);
+                fprintf(stderr, unknown_command);
                 return c_continue;
             }
         }
@@ -624,23 +713,9 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
 
         int64_t size = 0; 
         void *p = nullptr;
-        {
-            int res = sscanf_s(cmd + 2, " @ %p:0x%llx", &p, &size); // "%*[^@]@%p:%lld"
-            if (res < 2) {
-                char ch = 0;
-                int res = sscanf_s(cmd + 2, " @ %p:%llx%c", &p, &size, &ch);
-                if (res < 3 || ch == '^' || ch == '&') {
-                    res = sscanf_s(cmd + 2, " @ %p:%lld", &p, &size);
-                    if (res < 2) {
-                        fprintf(stderr, "Error parsing the input.\n");
-                        return c_continue;
-                    }
-                }
-                else if (ch != 'h' && ch != '^') {
-                    fprintf(stderr, "Error parsing the input.\n");
-                    return c_continue;
-                }
-            }
+        if (!get_ptr_and_size_2(cmd + 2, &p, &size)) {
+            fprintf(stderr, error_parsing_the_input);
+            return c_continue;
         }
         if (((size * mode) > MAX_BYTE_TO_HEXDUMP) || (size <= 0)) {
             fprintf(stderr, "Invalid number of bytes to display. The limit is 0x%x\n", MAX_BYTE_TO_HEXDUMP);
@@ -665,12 +740,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         if (op != hexdump_op::ho_none) {
             int64_t arg_len = cmd_len - op_position;
             // skip whitespace if there is any
-            for (int i = 0; i < arg_len; i++) {
-                if (cmd[op_position + 1 + i] != ' ') {
-                    op_position += 1 + i;
-                    break;
-                }
-            }
+            op_position += skip_whitespace(cmd + op_position, arg_len);
             arg_len = cmd_len - op_position;
             if (arg_len > MAX_OP_HEX_STRING_LEN) {
                 fprintf(stderr, "Hexdump operation: hex string exceeds %d bytes.\n", MAX_OP_HEX_STRING_LEN / 2);
@@ -697,33 +767,33 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         command = c_print_hexdump;
     } else if (cmd[0] == 'i') {
         if (cmd[1] == '?') {
-            return c_help_info;
+            return c_help_inspect;
         }
         switch (cmd[1]) {
         case 'm': {
             void* p = nullptr;
             int res = sscanf_s(cmd + 2, " @ %p", &p);
             if (res < 1) {
-                fprintf(stderr, "Error parsing the input.\n");
+                fprintf(stderr, error_parsing_the_input);
                 return c_continue;
             }
-            ctx->i_ctx.memory_address = (const char*)p;
+            ctx->i_data.memory_address = (const char*)p;
             command = c_inspect_memory;
             break;
         }
         case 'i': // same code as 'M'
         case 'M': {
-            memset(ctx->i_ctx.module_name, 0, sizeof(ctx->i_ctx.module_name));
+            memset(ctx->i_data.module_name, 0, sizeof(ctx->i_data.module_name));
             char buffer[MAX_PATH];
             memset(buffer, 0, sizeof(buffer));
             int res = sscanf_s(cmd + 2, " %s", buffer, sizeof(buffer));
             if (res < 1) {
-                fprintf(stderr, "Error parsing the input.\n");
+                fprintf(stderr, error_parsing_the_input);
                 return c_continue;
             }
             const int wc_size = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, NULL, 0);
-            if (wc_size && (wc_size <= _countof(ctx->i_ctx.module_name))) {
-                int result = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, ctx->i_ctx.module_name, wc_size);
+            if (wc_size && (wc_size <= _countof(ctx->i_data.module_name))) {
+                int result = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, ctx->i_data.module_name, wc_size);
                 if (result == 0) {
                     fprintf(stderr, "Error converting to wide character string: %s\n", buffer);
                     return c_continue;
@@ -742,21 +812,9 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             break;
         }
         case 't': {
-            int res = sscanf_s(cmd + 2, " 0x%x", &ctx->i_ctx.tid);
-            if (res < 1) {
-                char ch = 0;
-                int res = sscanf_s(cmd + 2, " %x%c", &ctx->i_ctx.tid, &ch);
-                if (res < 2) {
-                    res = sscanf_s(cmd + 2, " %d", &ctx->i_ctx.tid);
-                    if (res < 1) {
-                        fprintf(stderr, "Error parsing the input.\n");
-                        return c_continue;
-                    }
-                }
-                else if (ch != 'h') {
-                    fprintf(stderr, "Error parsing the input.\n");
-                    return c_continue;
-                }
+            if (!get_id(cmd + 2, &ctx->i_data.tid)) {
+                fprintf(stderr, error_parsing_the_input);
+                return c_continue;
             }
             command = c_inspect_thread;
             break;
@@ -765,7 +823,8 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             fprintf(stderr, unknown_command);
             return c_continue;
         }
-    } else if (cmd[0] == 'l') {
+    }
+    else if (cmd[0] == 'l') {
         if (cmd[1] == '?') {
             return c_help_list;
         }
@@ -774,10 +833,10 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         } else if (cmd[1] == 't') {
             if (cmd[2] == 0) {
                 command = c_list_threads;
-            } else if (cmd[2] =='r') {
+            } else if (cmd[2] == 'r') {
                 command = c_list_thread_registers;
             } else {
-                puts(unknown_command);
+                fprintf(stderr, unknown_command);
                 command = c_not_set;
             }
         } else if (cmd[1] == 'm') {
@@ -798,7 +857,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                         if ((i + 1) < cmd_length) {
                             scope_type = set_scope(cmd[i + 1]);
                             if (scope_type == search_scope_type::mrt_none) {
-                                puts(unknown_command);
+                                fprintf(stderr, unknown_command);
                                 return c_continue;
                             }
                         }
@@ -813,15 +872,53 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 ctx->pdata.scope_type = scope_type;
 
             } else {
-                puts(unknown_command);
+                fprintf(stderr, unknown_command);
                 command = c_not_set;
             }
         } else if (cmd[1] == 'h' && cmd[2] == 0) {
             command = c_list_handles;
         } else {
-            puts(unknown_command);
+            fprintf(stderr, unknown_command);
             command = c_not_set;
         }
+    } else if (cmd[0] == '%') {
+        if (cmd[1] == '?') {
+            return c_help_calculate;
+        }
+        const char* entropy = "entropy"; constexpr size_t entropy_sz = 7;
+        const char* crc32c = "crc32c"; constexpr size_t crc32c_sz = 6;
+
+        calculate_op op = calculate_op::co_none;
+        size_t command_len = strlen(cmd);
+        const char* args = cmd;
+        const int args_offset = skip_whitespace(args, command_len - ptrdiff_t(args - cmd));
+        args += args_offset;
+        if (0 == memcmp(args, entropy, entropy_sz)) {
+            args += entropy_sz;
+            op = calculate_op::co_entropy;
+        }  else if (0 == memcmp(args, crc32c, crc32c_sz)) {
+            args += crc32c_sz;
+            op = calculate_op::co_crc32c;
+        } else {
+            fprintf(stderr, unknown_command);
+            return c_continue;
+        }
+        void* p = nullptr;
+        int64_t size = 0;
+        if (!get_ptr_and_size_1(args, &p, &size)) {
+            fprintf(stderr, error_parsing_the_input);
+            return c_continue;
+        }
+
+        if (size <= 0 || size > MAX_CALCULATION_BLOCK_SIZE) {
+            fprintf(stderr, "Block size exceed maximum size: 0x%llx", MAX_CALCULATION_BLOCK_SIZE);
+            return c_continue;
+        }
+
+        ctx->cdata.address = (const uint8_t*)p;
+        ctx->cdata.size = size;
+        ctx->cdata.op = op;
+        command = c_calculate;
     } else {
         command = c_not_set;
     }
@@ -991,7 +1088,7 @@ static void print_section_headers(PIMAGE_SECTION_HEADER section_headers, WORD nu
 }
 
 void print_image_info(const common_processing_context* ctx) {
-    HANDLE file_handle = CreateFile(ctx->i_ctx.module_name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE file_handle = CreateFile(ctx->i_data.module_name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (file_handle == INVALID_HANDLE_VALUE) {
         fprintf(stderr, "Error opening file: %lu\n", GetLastError());
         return;
@@ -1056,4 +1153,39 @@ void print_image_info(const common_processing_context* ctx) {
     UnmapViewOfFile(base_address);
     CloseHandle(mapping_handle);
     CloseHandle(file_handle);
+}
+
+uint32_t compute_crc32c(const uint8_t* data, size_t length) {
+    constexpr size_t chunk_size = sizeof(uint64_t);
+    uint32_t crc = 0xFFFFFFFF;
+
+    while (length >= chunk_size) {
+        uint64_t chunk = *(const uint64_t*)data;
+
+        crc = _mm_crc32_u64(crc, chunk);
+        data += chunk_size;
+        length -= chunk_size;
+    }
+
+    while (length > 0) {
+        crc = _mm_crc32_u8(crc, *data);
+        data++;
+        length--;
+    }
+
+    return ~crc; // finalise the CRC by inverting all the bits
+}
+
+void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t size) {
+    if (cdata->op == calculate_op::co_entropy) {
+        entropy_context e_ctx;
+        entropy_init(&e_ctx);
+        entropy_calculate_frequencies(&e_ctx, bytes, size);
+        const double entropy = entropy_compute(&e_ctx, size);
+        printf("Block Start: 0x%p, Size: 0x%llx, Entropy: %.2f\n", cdata->address, size, entropy);
+    } else { // if ctx->common.cdata.op == calculate_op::co_crc32c
+        const uint32_t crc = compute_crc32c(bytes, size);
+        printf("Block Start: 0x%p, Size: 0x%llx, CRC32C: 0x%08x\n", cdata->address, size, crc);
+    }
+    puts("");
 }

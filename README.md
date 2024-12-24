@@ -1,5 +1,5 @@
 # Quick Memory Tools  
-**Version 0.3.6**  
+**Version 0.3.7**  
 
 ## ==== Command Line Options ====  
 
@@ -36,6 +36,8 @@
 `> <file-path>` - redirect output to a file, overwrite data<br/>
 `>a <file-path>` - redirect output to a file, append data<br/>
 `> stdout` - redirect output to stdout<br/>
+`%entropy@<address>:<size>` - calculate entropy of a block<br/>
+`%crc32c@<address>:<size>`  - calculate the crc32c of a block<br/>
 `im@<address>` - inspect memory region<br/>
 `iM <name>` - inspect module<br/>
 `it <tid>` - inspect thread<br/>

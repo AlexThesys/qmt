@@ -40,6 +40,7 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
 static bool test_selected_pid(proc_processing_context* ctx);
 static void print_memory_info(const proc_processing_context* ctx);
+static void data_block_calculate(proc_processing_context* ctx);
 
 static void find_pattern(search_context_proc* search_ctx) {
     HANDLE process = search_ctx->process;
@@ -95,7 +96,7 @@ static void find_pattern(search_context_proc* search_ctx) {
                         printf("Module name: %s\n", module_name);
                     }
                 }
-                printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+                printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%016llx\nState: %s\tProtect: %s\t",
                     r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
                 print_page_type(r_info.Type);
                 if (!res) {
@@ -286,7 +287,7 @@ static void print_search_results(search_context_proc& search_ctx) {
                     }
                 }
             }
-            printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+            printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%016llx\nState: %s\tProtect: %s\t",
                 r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
             print_page_type(r_info.Type);
 
@@ -442,6 +443,11 @@ static void print_help_inspect() {
     puts("------------------------------------\n");
 }
 
+static void print_help_calculate() {
+    print_help_calculate_common();
+    puts("------------------------------------\n");
+}
+
 static void print_help_traverse_heap() {
     puts("\n------------------------------------");
     puts("th\t\t\t - travers process heaps (slow)");
@@ -530,8 +536,11 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
     case c_help_hexdump:
         print_help_hexdump();
         break;
-    case c_help_info:
+    case c_help_inspect:
         print_help_inspect();
+        break;
+    case c_help_calculate:
+        print_help_calculate();
         break;
     case c_help_traverse_heap:
         print_help_traverse_heap();
@@ -606,6 +615,12 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_calculate:
+        try_redirect_output_to_file(&ctx->common);
+        data_block_calculate(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
     case c_travers_heap:
         try_redirect_output_to_file(&ctx->common);
         traverse_heap_list(ctx->pid, false, false, output_redirected(&ctx->common));
@@ -631,7 +646,7 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         redirect_output_to_stdout(&ctx->common);
         break;
     default :
-        puts(unknown_command);
+        fprintf(stderr, unknown_command);
         break;
     }
 }
@@ -753,7 +768,7 @@ static int list_process_modules(const proc_processing_context* ctx, bool show_se
     // and display information about each module
     printf("====================================");
     do {
-        if (show_selected && (nullptr == wcsstr(me32.szModule, ctx->common.i_ctx.module_name))) {
+        if (show_selected && (nullptr == wcsstr(me32.szModule, ctx->common.i_data.module_name))) {
             continue;
         }
 
@@ -861,7 +876,7 @@ static int list_process_threads(const proc_processing_context* ctx, bool show_se
 
     printf("====================================");
     for (auto& ti : thread_info) {
-        if (show_selected && (ti.thread_id != ctx->common.i_ctx.tid)) {
+        if (show_selected && (ti.thread_id != ctx->common.i_data.tid)) {
             continue;
         }
         _tprintf(TEXT("\n\n     THREAD ID         = 0x%08X"), ti.thread_id);
@@ -877,36 +892,6 @@ static int list_process_threads(const proc_processing_context* ctx, bool show_se
     puts("");
 
     return true;
-}
-
-#define NUM_VALUES 0x100
-
-struct entropy_context {
-    size_t freq[NUM_VALUES];
-};
-
-static void entropy_init(entropy_context * ctx) {
-    memset(ctx->freq, 0, sizeof(ctx->freq));
-}
-
-static void entropy_calculate_frequencies(entropy_context* ctx, const uint8_t* data, size_t  size) {
-    // Calculate frequencies of each byte
-    for (size_t i = 0; i < size; i++) {
-        ctx->freq[data[i]]++;
-    }
-}
-
-static double entropy_compute(entropy_context* ctx, size_t size) {
-    double entropy = 0.0;
-    const double sz = (double)size;
-    for (int i = 0; i < NUM_VALUES; i++) {
-        if (ctx->freq[i] != 0) {
-            double probability = (double)ctx->freq[i] / sz;
-            entropy -= probability * log2(probability);
-        }
-    }
-
-    return entropy;
 }
 
 static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy, bool redirected) {
@@ -1067,7 +1052,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
                 printf("Module name: %s\n", module_name);
             }
         }
-        printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+        printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%016llx\nState: %s\tProtect: %s\t",
             r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
         print_page_type(r_info.Type);
         puts("");
@@ -1121,10 +1106,10 @@ static bool test_selected_pid(proc_processing_context* ctx) {
 
     APP_MEMORY_INFORMATION mem_info;
     if (GetProcessInformation(process, ProcessAppMemoryInfo, &mem_info, sizeof(mem_info))) {
-        printf("Available Commit:\t\t 0x%08llx bytes\n", mem_info.AvailableCommit);
-        printf("Private Commit Usage:\t\t 0x%08llx bytes\n", mem_info.PrivateCommitUsage);
-        printf("Peak Private Commit Usage:\t 0x%08llx bytes\n", mem_info.PeakPrivateCommitUsage);
-        printf("Total Commit Usage:\t\t 0x%08llx bytes\n", mem_info.TotalCommitUsage);   
+        printf("Available Commit:\t\t 0x%016llx bytes\n", mem_info.AvailableCommit);
+        printf("Private Commit Usage:\t\t 0x%016llx bytes\n", mem_info.PrivateCommitUsage);
+        printf("Peak Private Commit Usage:\t 0x%016llx bytes\n", mem_info.PeakPrivateCommitUsage);
+        printf("Total Commit Usage:\t\t 0x%016llx bytes\n", mem_info.TotalCommitUsage);   
     }
     puts("");
 
@@ -1166,7 +1151,7 @@ static void print_memory_info(const proc_processing_context* ctx) {
     }
 
     MEMORY_BASIC_INFORMATION r_info;
-    if (VirtualQueryEx(process, ctx->common.i_ctx.memory_address, &r_info, sizeof(r_info)) != sizeof(r_info)) {
+    if (VirtualQueryEx(process, ctx->common.i_data.memory_address, &r_info, sizeof(r_info)) != sizeof(r_info)) {
         fprintf(stderr, "Error virtual query ex failed.\n");
         CloseHandle(process);
         return;
@@ -1175,7 +1160,7 @@ static void print_memory_info(const proc_processing_context* ctx) {
     WIN32_MEMORY_REGION_INFORMATION mem_info = { 0 };
     SIZE_T return_length = 0;
     BOOL status = QueryVirtualMemoryInformation
-                        (process, ctx->common.i_ctx.memory_address, MemoryRegionInfo, &mem_info, sizeof(mem_info), &return_length);
+                        (process, ctx->common.i_data.memory_address, MemoryRegionInfo, &mem_info, sizeof(mem_info), &return_length);
 
     puts("====================================\n");
     if (r_info.Type == MEM_IMAGE) {
@@ -1189,7 +1174,7 @@ static void print_memory_info(const proc_processing_context* ctx) {
            wprintf((LPWSTR)L"Stack: Thread Id 0x%04x\n", tid);
        }
     }
-    printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%08llx\nState: %s\tProtect: %s\t",
+    printf("Base address: 0x%p\tAllocation Base: 0x%p\tRegion Size: 0x%016llx\nState: %s\tProtect: %s\t",
         r_info.BaseAddress, r_info.AllocationBase, r_info.RegionSize, get_page_protect(r_info.Protect), get_page_state(r_info.State));
     print_page_type(r_info.Type);
     if (status) {
@@ -1197,5 +1182,64 @@ static void print_memory_info(const proc_processing_context* ctx) {
         printf("Range Commit Size: 0x%llx bytes\n", (uint64_t)mem_info.CommitSize);
         print_region_flags(&mem_info);
     }
+    CloseHandle(process);
+}
+
+static void data_block_calculate(proc_processing_context* ctx) {
+    const uint8_t* address = ctx->common.cdata.address;
+    uint8_t* buffer = nullptr;
+    size_t bytes_to_read = 0;
+
+    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
+    if (process == NULL) {
+        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+        return;
+    }
+
+    char proc_name[MAX_PATH];
+    if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
+        printf("Process name: %s\n\n", proc_name);
+    }
+    puts("\n------------------------------------\n");
+
+    {
+        const char* p = NULL;
+        MEMORY_BASIC_INFORMATION info;
+        for (p = NULL; VirtualQueryEx(process, p, &info, sizeof(info)) == sizeof(info); p += info.RegionSize) {
+            if (info.State == MEM_COMMIT) {
+                const size_t region_size = info.RegionSize;
+                if ((address >= info.BaseAddress) && (address < ((uint8_t*)info.BaseAddress + region_size))) {
+                    bytes_to_read = ctx->common.cdata.size;
+                    buffer = (uint8_t*)malloc(bytes_to_read);
+                    SIZE_T bytes_read = 0;
+                    const BOOL res = ReadProcessMemory(process, address, buffer, bytes_to_read, &bytes_read);
+                    if (!res || !bytes_read) {
+                        fprintf(stderr, "Error reading the memory region.\n");
+                        free(buffer);
+                        CloseHandle(process);
+                        return;
+                    }
+                    if (bytes_to_read != bytes_read) {
+                        printf("Only %llx bytes has been read.\n", bytes_read);
+                        bytes_to_read = bytes_read;
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+
+    if (0 == bytes_to_read) {
+        puts("Address not found in commited memory ranges.");
+        free(buffer);
+        CloseHandle(process);
+        return;
+    }
+
+    data_block_calculate_common(&ctx->common.cdata, buffer, bytes_to_read);
+
+    free(buffer);
+
     CloseHandle(process);
 }

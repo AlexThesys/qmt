@@ -83,6 +83,7 @@ static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx);
 static void stop_memory_regions_caching(cache_memory_regions_ctx* ctx, std::thread& t);
 static bool is_elevated();
 static bool purge_standby_list();
+static void data_block_calculate(dump_processing_context* ctx);
 
 static bool map_file(const char* dump_file_path, HANDLE* file_handle, HANDLE* file_mapping_handle, LPVOID* file_base) {
     *file_handle = CreateFileA(dump_file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN /*FILE_ATTRIBUTE_NORMAL*/, NULL);
@@ -426,7 +427,7 @@ static void print_search_results(search_context_dump& search_ctx) {
                     }
                 }
             }
-            printf("Start of Memory Region: 0x%p | Region Size: 0x%08llx\n\n",
+            printf("Start of Memory Region: 0x%p | Region Size: 0x%016llx\n\n",
                 r_info.StartOfMemoryRange, r_info.DataSize);
 
             prev_info_id = info_id;
@@ -598,7 +599,7 @@ static void search_pattern_in_registers(const dump_processing_context *ctx) {
             printf("ThreadID: 0x%04x\n\n", res.tid);
             tid_prev = res.tid;
         }
-        printf("\t%s: 0x%08llx\n", res.reg_name, res.match);
+        printf("\t%s: 0x%016llx\n", res.reg_name, res.match);
     }
     puts("");
 }
@@ -699,11 +700,6 @@ static void print_help_hexdump() {
     puts("------------------------------------\n");
 }
 
-static void print_help_inspect() {
-    print_help_inspect_common();
-    puts("------------------------------------\n");
-}
-
 static void print_help_list() {
     print_help_list_common();
     puts("------------------------------------");
@@ -713,11 +709,21 @@ static void print_help_list() {
     puts("------------------------------------\n");
 }
 
+static void print_help_inspect() {
+    print_help_inspect_common();
+    puts("------------------------------------\n");
+}
+
+static void print_help_calculate() {
+    print_help_calculate_common();
+    puts("------------------------------------\n");
+}
+
 static input_command parse_command(dump_processing_context *ctx, search_data_info *data, char *pattern) {
     //char* cmd = ctx->common.command;
     input_command command;
     
-    puts(unknown_command);
+    fprintf(stderr, unknown_command);
     command = c_continue;
 
     return command;
@@ -740,8 +746,11 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
     case c_help_hexdump:
         print_help_hexdump();
         break;
-    case c_help_info:
+    case c_help_inspect:
         print_help_inspect();
+        break;
+    case c_help_calculate:
+        print_help_calculate();
         break;
     case c_search_pattern :
         wait_for_memory_regions_caching(&ctx->pages_caching_state);
@@ -806,6 +815,12 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_calculate:
+        try_redirect_output_to_file(&ctx->common);
+        data_block_calculate(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
     case c_list_modules:
         try_redirect_output_to_file(&ctx->common);
         list_modules(ctx);
@@ -831,7 +846,7 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         redirect_output_to_stdout(&ctx->common);
         break;
     default :
-        puts(unknown_command);
+        fprintf(stderr, unknown_command);
         break;
     }
 }
@@ -1009,7 +1024,7 @@ static bool list_memory64_regions(const dump_processing_context* ctx) {
                 break;
             }
         }
-        printf("Start Address: 0x%p | Size: 0x%08llx\n", mem_desc.StartOfMemoryRange, mem_desc.DataSize);
+        printf("Start Address: 0x%p | Size: 0x%016llx\n", mem_desc.StartOfMemoryRange, mem_desc.DataSize);
     }
     puts("");
 
@@ -1149,7 +1164,7 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
                 break;
             }
         }
-        printf("Base Address: 0x%p | Size: 0x%08llx | State: %s\t | Protect: %s\t",
+        printf("Base Address: 0x%p | Size: 0x%016llx | State: %s\t | Protect: %s\t",
             memory_info[i].BaseAddress, memory_info[i].RegionSize, 
             get_page_state(mem_info.State), get_page_protect(mem_info.Protect));
         print_page_type(mem_info.Type);
@@ -1170,7 +1185,7 @@ static void print_memory_info(const dump_processing_context* ctx) {
     for (ULONG i = 0; i < memory_info_list->NumberOfEntries; ++i) {
         const MINIDUMP_MEMORY_INFO& mem_info = memory_info[i];
 
-        if (((ULONG64)ctx->common.i_ctx.memory_address < mem_info.BaseAddress) || ((ULONG64)ctx->common.i_ctx.memory_address >= (mem_info.BaseAddress + mem_info.RegionSize))) {
+        if (((ULONG64)ctx->common.i_data.memory_address < mem_info.BaseAddress) || ((ULONG64)ctx->common.i_data.memory_address >= (mem_info.BaseAddress + mem_info.RegionSize))) {
             continue;
         }
 
@@ -1194,7 +1209,7 @@ static void print_memory_info(const dump_processing_context* ctx) {
                 }
             }
         }
-        printf("Base Address: 0x%p | Size: 0x%08llx | State: %s\t | Protect: %s\t",
+        printf("Base Address: 0x%p | Size: 0x%016llx | State: %s\t | Protect: %s\t",
             memory_info[i].BaseAddress, memory_info[i].RegionSize,
             get_page_state(mem_info.State), get_page_protect(mem_info.Protect));
         print_page_type(mem_info.Type);
@@ -1206,7 +1221,7 @@ static void print_memory_info(const dump_processing_context* ctx) {
 static void print_module_info(const dump_processing_context* ctx) {
     for (ULONG i = 0, num_modules = ctx->m_data.size(); i < num_modules; i++) {
         const module_data& m = ctx->m_data[i];
-        if (nullptr == wcsstr(m.name, ctx->common.i_ctx.module_name)) {
+        if (nullptr == wcsstr(m.name, ctx->common.i_data.module_name)) {
             continue;
         }
         wprintf((LPWSTR)L"Module name: %s\n", m.name);
@@ -1218,7 +1233,7 @@ static void print_module_info(const dump_processing_context* ctx) {
 static void print_thread_info(const dump_processing_context* ctx) {
     for (ULONG i = 0, num_threads = ctx->t_data.size(); i < num_threads; i++) {
         const thread_info_dump& thread = ctx->t_data[i];
-        if (thread.tid != ctx->common.i_ctx.tid) {
+        if (thread.tid != ctx->common.i_data.tid) {
             continue;
         }
         printf("ThreadID: 0x%04x | Priority Class: 0x%04x | Priority: 0x%04x | Stack Base: 0x%p\n\n",
@@ -1278,6 +1293,63 @@ static void list_handle_descriptors(const dump_processing_context* ctx) {
         fprintf(stderr, "Failed to read HandleDataStream.\n");
     }
     puts("");
+}
+
+static void data_block_calculate(dump_processing_context* ctx) {
+    std::vector<uint8_t> bytes;
+    const uint8_t* address = ctx->common.cdata.address;
+
+    MINIDUMP_MEMORY64_LIST* memory_list = nullptr;
+    ULONG stream_size = 0;
+    if (!MiniDumpReadDumpStream(ctx->file_base, Memory64ListStream, nullptr, reinterpret_cast<void**>(&memory_list), &stream_size)) {
+        fprintf(stderr, "Failed to read Memory64ListStream.\n");
+        return;
+    }
+    puts("\n------------------------------------\n");
+
+    const MINIDUMP_MEMORY_DESCRIPTOR64* memory_descriptors = (MINIDUMP_MEMORY_DESCRIPTOR64*)((char*)(memory_list)+sizeof(MINIDUMP_MEMORY64_LIST));
+    const uint64_t alloc_granularity = get_alloc_granularity();
+    const size_t num_regions = memory_list->NumberOfMemoryRanges;
+    size_t cumulative_offset = 0;
+
+    for (ULONG i = 0; i < num_regions; ++i) {
+        const MINIDUMP_MEMORY_DESCRIPTOR64& mem_desc = memory_descriptors[i];
+        const SIZE_T region_size = static_cast<SIZE_T>(mem_desc.DataSize);
+        if (((ULONG64)address >= mem_desc.StartOfMemoryRange) && ((ULONG64)address < (mem_desc.StartOfMemoryRange + region_size))) {
+            size_t bytes_to_read = ctx->common.cdata.size;
+            const ULONG64 start_offset = (ULONG64)address - mem_desc.StartOfMemoryRange;
+            bytes_to_read = _min(bytes_to_read, (region_size - start_offset));
+
+            const uint64_t rva_offset = memory_list->BaseRva + cumulative_offset + start_offset;
+            uint64_t rva_offset_aligned = rva_offset & ~(alloc_granularity - 1);
+            uint64_t reminder = rva_offset - rva_offset_aligned;
+            const size_t bytes_to_map = bytes_to_read + reminder;
+            const DWORD high = (DWORD)((rva_offset_aligned >> 0x20) & 0xFFFFFFFF);
+            const DWORD low = (DWORD)(rva_offset_aligned & 0xFFFFFFFF);
+            HANDLE file_base = MapViewOfFile(ctx->file_mapping, FILE_MAP_READ, high, low, bytes_to_map);
+            const char* buffer = ((const char*)file_base + reminder);
+            if (!buffer) {
+                UnmapViewOfFile(file_base);
+                fprintf(stderr, "Empty memory region!\n");
+                return;
+            }
+            bytes.reserve(bytes_to_read);
+            for (int i = 0; i < bytes_to_read; i++) {
+                bytes.push_back(buffer[i]);
+            }
+
+            UnmapViewOfFile(file_base);
+            break;
+        }
+        cumulative_offset += mem_desc.DataSize;
+    }
+
+    if (0 == bytes.size()) {
+        puts("Address not found in commited memory ranges.");
+        return;
+    }
+
+    data_block_calculate_common(&ctx->common.cdata, bytes.data(), bytes.size());
 }
 
 static bool is_drive_ssd(const char* file_path) {
