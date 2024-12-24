@@ -31,7 +31,6 @@
 `xw@<address>:<N>`	- hexdump N words at address  
 `xd@<address>:<N>`	- hexdump N dwords at address  
 `xq@<address>:<N>`	- hexdump N qwords at address<br/>
-  * All hexdump commands can have an operation applied to the data.
 `x(b|w|d|q)@<address>:<N>^<hex-string>` - XOR hex-data with a hex-string<br/>
 `> <file-path>` - redirect output to a file, overwrite data<br/>
 `>a <file-path>` - redirect output to a file, append data<br/>
