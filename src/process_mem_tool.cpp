@@ -330,8 +330,9 @@ static void search_pattern_in_memory(proc_processing_context* ctx) {
 }
 
 static void print_hexdump_proc(proc_processing_context* ctx) {
-    std::vector<uint8_t> bytes;
     const uint8_t* address = ctx->common.hdata.address;
+    uint8_t* buffer = nullptr;
+    size_t bytes_to_read = 0;
 
     HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
     if (process == NULL) {
@@ -352,11 +353,11 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
             if (info.State == MEM_COMMIT) {
                 const size_t region_size = info.RegionSize;
                 if ((address >= info.BaseAddress) && (address < ((uint8_t*)info.BaseAddress + region_size))) {
-                    size_t bytes_to_read = ctx->common.hdata.num_to_display * ctx->common.hdata.mode;
+                    bytes_to_read = ctx->common.hdata.num_to_display * ctx->common.hdata.mode;
                     bytes_to_read = _min(bytes_to_read, (region_size - (address - info.BaseAddress)));
                     bytes_to_read = (bytes_to_read / ctx->common.hdata.mode) * ctx->common.hdata.mode;
-                    uint8_t* buffer = (uint8_t*)malloc(bytes_to_read);
-                    SIZE_T bytes_read;
+                    buffer = (uint8_t*)malloc(bytes_to_read);
+                    SIZE_T bytes_read = 0;
                     const BOOL res = ReadProcessMemory(process, address, buffer, bytes_to_read, &bytes_read);
                     if (!res || !bytes_read) {
                         fprintf(stderr, "Error reading the memory region.\n");
@@ -365,30 +366,28 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
                         return;
                     }
                     if (bytes_to_read == bytes_read) {
-                        ctx->common.hdata.num_to_display = bytes_to_read;
+                        ctx->common.hdata.num_to_display = bytes_to_read / ctx->common.hdata.mode;
                     } else {
                         ctx->common.hdata.num_to_display = bytes_read / ctx->common.hdata.mode;
                         bytes_to_read = ctx->common.hdata.num_to_display * ctx->common.hdata.mode;
                     }
 
-                    bytes.reserve(bytes_to_read);
-                    for (int i = 0; i < bytes_to_read; i++) {
-                        bytes.push_back(buffer[i]);
-                    }
-                    free(buffer);
                     break;
                 }
             }
         }
     }
 
-    if (0 == bytes.size()) {
+    if (0 == bytes_to_read) {
         puts("Address not found in commited memory ranges.");
+        free(buffer);
         CloseHandle(process);
         return;
     }
 
-    print_hexdump(ctx->common.hdata, bytes);
+    print_hexdump(ctx->common.hdata, buffer, bytes_to_read);
+
+    free(buffer);
 
     CloseHandle(process);
 }

@@ -197,7 +197,7 @@ void print_help_list_common();
 void print_help_inspect_common();
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* pattern);
 uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
-void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t> &bytes);
+void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t length);
 void try_redirect_output_to_file(common_processing_context* ctx);
 void redirect_output_to_stdout(common_processing_context* ctx);
 

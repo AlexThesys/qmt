@@ -661,7 +661,7 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
         return;
     }
 
-    print_hexdump(ctx->common.hdata, bytes);
+    print_hexdump(ctx->common.hdata, bytes.data(), bytes.size());
 }
 
 static void print_help_main() {

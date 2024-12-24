@@ -718,10 +718,10 @@ uint64_t prepare_matches(const common_processing_context* ctx, std::vector<searc
     return matches.size();
 }
 
-void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes) {
+void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t length) {
     printf("    - offset -      ");
     const uint8_t* address = hdata.address;
-    const size_t size_bytes = bytes.size();
+    const size_t size_bytes = length;
     const size_t size = size_bytes / hdata.mode;
     constexpr int bytes_in_row = 0x10;
     const int num_cols = bytes_in_row / hdata.mode;
@@ -736,9 +736,9 @@ void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes)
         }
         puts("");
         size_t byte_id = 0;
-        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += num_cols) {
+        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
             printf("0x%p  ", address);
-            address += num_cols;
+            address += bytes_in_row;
             const size_t _sz = _min(num_cols, (size - byte_id));
             for (int j = 0; j < _sz; j++) {
                 printf("%02x ", (uint8_t)bytes[byte_id+j]);
@@ -764,7 +764,7 @@ void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes)
         size_t byte_id = 0;
         for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
             printf("0x%p  ", address);
-            address += num_cols;
+            address += bytes_in_row;
             const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
             for (int j = 0; j < _sz; j+=sizeof(uint16_t)) {
                 printf("0x%04x ", *(uint16_t*)&bytes[byte_id + j]);
@@ -776,9 +776,9 @@ void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes)
     case hm_dwords: {
         puts("");
         size_t byte_id = 0;
-        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += num_cols) {
+        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
             printf("0x%p  ", address);
-            address += num_cols;
+            address += bytes_in_row;
             const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
             for (int j = 0; j < _sz; j += sizeof(uint32_t)) {
                 printf("0x%08x ", *(uint32_t*)&bytes[byte_id + j]);
@@ -790,12 +790,12 @@ void print_hexdump(const hexdump_data& hdata, const std::vector<uint8_t>& bytes)
     case hm_qwords: {
         puts("");
         size_t byte_id = 0;
-        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += num_cols) {
+        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
             printf("0x%p  ", address);
-            address += num_cols;
+            address += bytes_in_row;
             const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
             for (int j = 0; j < _sz; j += sizeof(uint64_t)) {
-                printf("0x%016x ", *(uint64_t*)&bytes[byte_id + j]);
+                printf("0x%016llx ", *(uint64_t*)&bytes[byte_id + j]);
             }
             puts("");
         }
