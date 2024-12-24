@@ -32,6 +32,7 @@
 `xd@<address>:<N>`	- hexdump N dwords at address  
 `xq@<address>:<N>`	- hexdump N qwords at address<br/>
 `x(b|w|d|q)@<address>:<N>^<hex-string>` - XOR hex-data with a hex-string<br/>
+`x(b|w|d|q)@<address>:<N>&<hex-string>` - AND hex-data with a hex-string<br/>
 `> <file-path>` - redirect output to a file, overwrite data<br/>
 `>a <file-path>` - redirect output to a file, append data<br/>
 `> stdout` - redirect output to stdout<br/>

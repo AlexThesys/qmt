@@ -391,6 +391,11 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
             buffer[i] ^= ctx->common.hdata.hex_op.hex_str[j];
         }
         break;
+    case hexdump_op::ho_and:
+        for (int i = 0, j = 0; i < bytes_to_read; i++, j = (j + 1) % ctx->common.hdata.hex_op.str_len) {
+            buffer[i] &= ctx->common.hdata.hex_op.hex_str[j];
+        }
+        break;
     default:
         break;
     }

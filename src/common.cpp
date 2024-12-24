@@ -397,6 +397,7 @@ void print_help_hexdump_common() {
     puts("xq@<address>:<N>\t - hexdump N qwords at address");
     puts("* All hexdump commands can have an operation applied to the data.");
     puts("x(b|w|d|q)@<address>:<N>^<hex-string> - XOR hex-data with a hex-string");
+    puts("x(b|w|d|q)@<address>:<N>&<hex-string> - AND hex-data with a hex-string");
 }
 
 void print_help_list_common() {
@@ -610,7 +611,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         if (res < 2) {
             char ch = 0;
             int res = sscanf_s(cmd + 2, " @ %p:%llx%c", &p, &size, &ch);
-            if (res < 3 || ch == '^') {
+            if (res < 3 || ch == '^' || ch == '&') {
                 res = sscanf_s(cmd + 2, " @ %p:%lld", &p, &size);
                 if (res < 2) {
                     fprintf(stderr, "Error parsing the input.\n");
@@ -635,8 +636,11 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 op_position = i;
                 op = hexdump_op::ho_xor;
                 break;
+            } else if (cmd[i] == '&') {
+                op_position = i;
+                op = hexdump_op::ho_and;
+                break;
             }
-            //else if (cmd[i] == '&')
         }
         if (op != hexdump_op::ho_none) {
             int64_t arg_len = cmd_len - op_position;
@@ -649,7 +653,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             }
             arg_len = cmd_len - op_position;
             if (arg_len > MAX_OP_HEX_STRING_LEN) {
-                fprintf(stderr, "EOperation hex string exceeds %d bytes.\n", MAX_OP_HEX_STRING_LEN / 2);
+                fprintf(stderr, "Hexdump operation: hex string exceeds %d bytes.\n", MAX_OP_HEX_STRING_LEN / 2);
                 return c_continue;
             }
             search_data_info data;

@@ -110,6 +110,7 @@ enum hexdump_mode {
 enum hexdump_op {
     ho_none,
     ho_xor,
+    ho_and,
 };
 
 struct search_range {
