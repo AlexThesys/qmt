@@ -714,86 +714,11 @@ static void print_help_list() {
 }
 
 static input_command parse_command(dump_processing_context *ctx, search_data_info *data, char *pattern) {
-    char* cmd = ctx->common.command;
+    //char* cmd = ctx->common.command;
     input_command command;
-
-    const size_t arg_len = strlen(cmd);
-    int cmd_length = 1;
-    for (; cmd_length < arg_len; cmd_length++) {
-        if (cmd[cmd_length] == ' ') break;
-    }
-
-    if (cmd[0] == 'l') {
-        if (cmd[1] == '?') {
-            return c_help_list;
-        }
-        if (cmd[1] == 'M' && cmd[2] == 0) {
-            command = c_list_modules;
-        } else if (cmd[1] == 't') {
-            if (cmd[2] == 0) {
-                command = c_list_threads;
-            } else if (cmd[2] =='r') {
-                command = c_list_thread_registers;
-            } else {
-                puts(unknown_command);
-                command = c_continue;
-            }
-        } else if (cmd[1] == 'm') {
-            if (cmd[2] == 0) {
-                command = c_list_memory_regions;
-            }
-            else if (cmd[2] == 'i') {
-                // defaults
-                command = c_list_memory_regions_info;
-                search_scope_type scope_type = search_scope_type::mrt_all;
-                bool stop_parsing = false;
-                for (int i = 3; (i < cmd_length) && !stop_parsing; i++) {
-                    switch (cmd[i]) {
-                    case 'c':
-                        command = c_list_memory_regions_info_committed;
-                        break;
-                    case ':': {
-                        if ((i + 1) < cmd_length) {
-                            switch (cmd[i + 1]) {
-                            case 'i':
-                                scope_type = search_scope_type::mrt_image;
-                                break;
-                            case 's':
-                                scope_type = search_scope_type::mrt_stack;
-                                break;
-                            case 'o':
-                                scope_type = search_scope_type::mrt_other;
-                                break;
-                            default:
-                                puts(unknown_command);
-                                return c_continue;
-                            }
-                        }
-                        stop_parsing = true;
-                        break;
-                    }
-                    default:
-                        fprintf(stderr, unknown_command);
-                        return c_continue;
-                    }
-                }
-                ctx->common.pdata.scope_type = scope_type;
-
-            } else {
-                puts(unknown_command);
-                command = c_continue;
-            }
-        } else if (cmd[1] == 'h' && cmd[2] == 0) {
-            command = c_list_handles;
-        } else {
-            puts(unknown_command);
-            command = c_continue;
-        }
-    } else {
-        puts(unknown_command);
-        command = c_continue;
-    }
-    puts("");
+    
+    puts(unknown_command);
+    command = c_continue;
 
     return command;
 }
