@@ -421,6 +421,24 @@ void print_help_inspect_common() {
     puts("ii <file-path>\t\t - inspect image");
 }
 
+inline search_scope_type set_scope(char ch) {
+    search_scope_type scope_type;
+    switch (ch) {
+    case 'i':
+        scope_type = search_scope_type::mrt_image;
+        break;
+    case 's':
+        scope_type = search_scope_type::mrt_stack;
+        break;
+    case 'o':
+        scope_type = search_scope_type::mrt_other;
+        break;
+    default:
+        scope_type = mrt_none;
+    }
+    return scope_type;
+}
+
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
     char* cmd = ctx->command;
     input_command command;
@@ -503,17 +521,8 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 break;
             case ':':
                 if ((i + 1) < cmd_length) {
-                    switch (cmd[i+1]) {
-                    case 'i' :
-                        scope_type = search_scope_type::mrt_image;
-                        break;
-                    case 's' :
-                        scope_type = search_scope_type::mrt_stack;
-                        break;
-                    case 'o':
-                        scope_type = search_scope_type::mrt_other;
-                        break;
-                    default:
+                    scope_type = set_scope(cmd[i + 1]);
+                    if (scope_type == search_scope_type::mrt_none) {
                         puts(unknown_command);
                         return c_continue;
                     }
@@ -541,19 +550,22 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
 
                 int64_t size = 0;
                 void* p = nullptr;
-                int res = sscanf_s(cmd + i, "@%p:0x%llx", &p, &size); // "%*[^@]@%p:%lld"
-                if (res < 2) {
-                    char ch = 0;
-                    int res = sscanf_s(cmd + i, "@%p:%llx%c", &p, &size, &ch);
-                    if ((res == 3) && (ch == ' ')) {
-                        res = sscanf_s(cmd + i, "@%p:%lld", &p, &size);
-                        if (res < 2) {
+                {
+                    int res = sscanf_s(cmd + i, "@%p:0x%llx", &p, &size); // "%*[^@]@%p:%lld"
+                    if (res < 2) {
+                        char ch = 0;
+                        int res = sscanf_s(cmd + i, "@%p:%llx%c", &p, &size, &ch);
+                        if ((res == 3) && (ch == ' ')) {
+                            res = sscanf_s(cmd + i, "@%p:%lld", &p, &size);
+                            if (res < 2) {
+                                fprintf(stderr, "Error parsing the input.\n");
+                                return c_continue;
+                            }
+                        }
+                        else if ((res != 3) || (ch != 'h')) {
                             fprintf(stderr, "Error parsing the input.\n");
                             return c_continue;
                         }
-                    } else if ((res != 3) || (ch != 'h')) {
-                        fprintf(stderr, "Error parsing the input.\n");
-                        return c_continue;
                     }
                 }
                 if ((size > MAX_RANGE_LENGTH) || (size <= 0)) {
@@ -612,19 +624,22 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
 
         int64_t size = 0; 
         void *p = nullptr;
-        int res = sscanf_s(cmd + 2, " @ %p:0x%llx", &p, &size); // "%*[^@]@%p:%lld"
-        if (res < 2) {
-            char ch = 0;
-            int res = sscanf_s(cmd + 2, " @ %p:%llx%c", &p, &size, &ch);
-            if (res < 3 || ch == '^' || ch == '&') {
-                res = sscanf_s(cmd + 2, " @ %p:%lld", &p, &size);
-                if (res < 2) {
+        {
+            int res = sscanf_s(cmd + 2, " @ %p:0x%llx", &p, &size); // "%*[^@]@%p:%lld"
+            if (res < 2) {
+                char ch = 0;
+                int res = sscanf_s(cmd + 2, " @ %p:%llx%c", &p, &size, &ch);
+                if (res < 3 || ch == '^' || ch == '&') {
+                    res = sscanf_s(cmd + 2, " @ %p:%lld", &p, &size);
+                    if (res < 2) {
+                        fprintf(stderr, "Error parsing the input.\n");
+                        return c_continue;
+                    }
+                }
+                else if (ch != 'h' && ch != '^') {
                     fprintf(stderr, "Error parsing the input.\n");
                     return c_continue;
                 }
-            } else if (ch != 'h' && ch != '^') {
-                fprintf(stderr, "Error parsing the input.\n");
-                return c_continue;
             }
         }
         if (((size * mode) > MAX_BYTE_TO_HEXDUMP) || (size <= 0)) {
@@ -680,7 +695,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         ctx->hdata.hex_op.op = op;
 
         command = c_print_hexdump;
-    }else if (cmd[0] == 'i') {
+    } else if (cmd[0] == 'i') {
         if (cmd[1] == '?') {
             return c_help_info;
         }
@@ -713,16 +728,14 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                     fprintf(stderr, "Error converting to wide character string: %s\n", buffer);
                     return c_continue;
                 }
-            }
-            else {
+            } else {
                 fprintf(stderr, "Module name exceeds maximum length: %s\n", buffer);
                 return c_continue;
             }
 
             if (cmd[1] == 'M') {
                 command = c_inspect_module;
-            }
-            else { // if cmd[1] == 'i'
+            } else { // if cmd[1] == 'i'
                 command = c_inspect_image;
             }
 
@@ -783,19 +796,10 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                         break;
                     case ':': {
                         if ((i + 1) < cmd_length) {
-                            switch (cmd[i + 1]) {
-                            case 'i':
-                                scope_type = search_scope_type::mrt_image;
-                                break;
-                            case 's':
-                                scope_type = search_scope_type::mrt_stack;
-                                break;
-                            case 'o':
-                                scope_type = search_scope_type::mrt_other;
-                                break;
-                            default:
+                            scope_type = set_scope(cmd[i + 1]);
+                            if (scope_type == search_scope_type::mrt_none) {
                                 puts(unknown_command);
-                                return c_not_set;
+                                return c_continue;
                             }
                         }
                         stop_parsing = true;

@@ -53,7 +53,8 @@ enum input_type {
 };
 
 enum search_scope_type {
-    mrt_all = 0,
+    mrt_none, // error type
+    mrt_all,
     mrt_image,
     mrt_stack,
     mrt_other,
