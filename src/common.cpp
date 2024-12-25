@@ -774,8 +774,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             void* p = nullptr;
             int res = sscanf_s(cmd + 2, " @ %p", &p);
             if (res < 1) {
-                fprintf(stderr, error_parsing_the_input);
-                return c_continue;
+                return c_not_set;
             }
             ctx->i_data.memory_address = (const char*)p;
             command = c_inspect_memory;
@@ -823,8 +822,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             fprintf(stderr, unknown_command);
             return c_continue;
         }
-    }
-    else if (cmd[0] == 'l') {
+    } else if (cmd[0] == 'l') {
         if (cmd[1] == '?') {
             return c_help_list;
         }
@@ -836,7 +834,6 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             } else if (cmd[2] == 'r') {
                 command = c_list_thread_registers;
             } else {
-                fprintf(stderr, unknown_command);
                 command = c_not_set;
             }
         } else if (cmd[1] == 'm') {
@@ -865,20 +862,17 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                         break;
                     }
                     default:
-                        fprintf(stderr, unknown_command);
                         return c_not_set;
                     }
                 }
                 ctx->pdata.scope_type = scope_type;
 
             } else {
-                fprintf(stderr, unknown_command);
                 command = c_not_set;
             }
         } else if (cmd[1] == 'h' && cmd[2] == 0) {
             command = c_list_handles;
         } else {
-            fprintf(stderr, unknown_command);
             command = c_not_set;
         }
     } else if (cmd[0] == '%') {

@@ -88,6 +88,7 @@ enum input_command {
     c_inspect_module,
     c_inspect_thread,
     c_inspect_image,
+    c_inspect_memory_usage,
     c_calculate,
     c_travers_heap,
     c_travers_heap_calc_entropy,

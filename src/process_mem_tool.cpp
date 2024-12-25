@@ -38,6 +38,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
 static void print_error(TCHAR const* msg);
 static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info);
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
+static bool print_memory_usage(proc_processing_context* ctx);
 static bool test_selected_pid(proc_processing_context* ctx);
 static void print_memory_info(const proc_processing_context* ctx);
 static void data_block_calculate(proc_processing_context* ctx);
@@ -441,6 +442,8 @@ static void print_help_list() {
 
 static void print_help_inspect() {
     print_help_inspect_common();
+    puts("------------------------------------");
+    puts("imu\t\t\t - show memory usage");
     puts("------------------------------------\n");
 }
 
@@ -487,6 +490,13 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
     } else if (cmd[0] == 'l') {
         if (cmd[1] == 'p' && cmd[2] == 0) {
             command = c_list_pids;
+        } else {
+            fprintf(stderr, unknown_command);
+            command = c_continue;
+        }
+    } else if (cmd[0] == 'i') {
+        if (cmd[1] == 'm' && cmd[2] == 'u' && cmd[3] == 0) {
+            command = c_inspect_memory_usage;
         } else {
             fprintf(stderr, unknown_command);
             command = c_continue;
@@ -613,6 +623,12 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
     case c_inspect_image:
         try_redirect_output_to_file(&ctx->common);
         print_image_info(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_inspect_memory_usage:
+        try_redirect_output_to_file(&ctx->common);
+        print_memory_usage(ctx);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -1107,7 +1123,7 @@ void print_process_memory_info(HANDLE process_handle) {
     puts("");
 }
 
-static bool test_selected_pid(proc_processing_context* ctx) {
+static bool print_memory_usage(proc_processing_context* ctx) {
     HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
     if (process == NULL) {
         ctx->pid = INVALID_ID;
@@ -1138,6 +1154,10 @@ static bool test_selected_pid(proc_processing_context* ctx) {
 
     CloseHandle(process);
     return true;
+}
+
+static bool test_selected_pid(proc_processing_context* ctx) {
+    return print_memory_usage(ctx);
 }
 
 static DWORD is_on_stack(const proc_processing_context* ctx, const MEMORY_BASIC_INFORMATION* r_info) {
