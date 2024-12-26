@@ -48,9 +48,6 @@ static void print_memory_info(const proc_processing_context* ctx);
 static void data_block_calculate(proc_processing_context* ctx);
 static void print_module_info(const proc_processing_context* ctx, const wchar_t* module_name);
 static bool init_symbols(proc_processing_context* ctx);
-static void symbol_find(proc_processing_context* ctx);
-void symbol_get_path(proc_processing_context* ctx);
-void symbol_set_path(proc_processing_context* ctx);
 
 static bool is_process_handle_valid(HANDLE process) {
     DWORD exit_code;
@@ -678,16 +675,16 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         break;
     case c_symbol_detect:
         try_redirect_output_to_file(&ctx->common);
-        symbol_find(ctx);
+        symbol_find_at_address(&ctx->common);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
     case c_symbol_get_path:
-        symbol_get_path(ctx);
+        symbol_get_path(&ctx->common);
         puts("====================================\n");
         break;
     case c_symbol_set_path:
-        symbol_set_path(ctx);
+        symbol_set_path(&ctx->common);
         puts("====================================\n");
         break;
     case c_travers_heap:
@@ -1449,27 +1446,4 @@ static bool init_symbols(proc_processing_context* ctx) {
         SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     }
     return true;
-}
-
-static void symbol_find(proc_processing_context* ctx) {
-    if (!init_symbols(ctx)) {
-        return;
-    }
-
-    symbol_find_common(&ctx->common);
-}
-
-void symbol_get_path(proc_processing_context* ctx) {
-    if (!init_symbols(ctx)) {
-        return;
-    }
-
-    symbol_get_path_common(&ctx->common);
-}
-void symbol_set_path(proc_processing_context* ctx) {
-    if (!init_symbols(ctx)) {
-        return;
-    }
-
-    symbol_set_path_common(&ctx->common);
 }

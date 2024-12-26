@@ -951,6 +951,10 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             } else {
                 const size_t cmd_len = strlen(cmd);
                 const char* paths = skip_to_args(cmd, cmd_len);
+                if (cmd_len <= ptrdiff_t(paths - cmd)) {
+                    fprintf(stderr, error_parsing_the_input);
+                    return c_continue;
+                }
                 strcpy_s(ctx->sym_ctx.paths, sizeof(ctx->sym_ctx.paths), paths);
                 command = c_symbol_set_path;
             }
@@ -1245,7 +1249,12 @@ void deinit_symbols(common_processing_context* ctx) {
     ctx->sym_ctx.initialized = false;
 }
 
-void symbol_find_common(const common_processing_context* ctx) {
+void symbol_find_at_address(const common_processing_context* ctx) {
+    if (!ctx->sym_ctx.initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.");
+        return;
+    }
+
     const DWORD64 address = ctx->sym_ctx.search_data.address;
     char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
     PSYMBOL_INFO symbol_info = (PSYMBOL_INFO)symbol_buffer;
@@ -1264,18 +1273,31 @@ void symbol_find_common(const common_processing_context* ctx) {
     }
 }
 
-void symbol_get_path_common(const common_processing_context* ctx) {
+void symbol_get_path(const common_processing_context* ctx) {
+    if (!ctx->sym_ctx.initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.");
+        return;
+    }
+
     char search_path[SYMBOL_PATHS_SIZE];
     memset(search_path, 0, sizeof(search_path));
     if (!SymGetSearchPath(ctx->sym_ctx.process, search_path, sizeof(search_path))) {
-        fprintf(stderr, "Failed to get the symbol search path");
+        fprintf(stderr, "Failed to get the symbol search path.\n");
         return;
     }
     printf("Symbol search path: %s\n", search_path);
 }
 
-void symbol_set_path_common(const common_processing_context* ctx) {
+void symbol_set_path(const common_processing_context* ctx) {
+    if (!ctx->sym_ctx.initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.");
+        return;
+    }
+
     if (!SymSetSearchPath(ctx->sym_ctx.process, ctx->sym_ctx.paths)) {
-        fprintf(stderr, "Failed to set the symbol search path");
+        fprintf(stderr, "Failed to set the symbol search path.\n");
+    }
+    if (!SymRefreshModuleList(ctx->sym_ctx.process)) {
+        fprintf(stderr, "Failed to refresh the module list.\n");
     }
 }

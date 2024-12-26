@@ -264,9 +264,9 @@ void print_help_calculate_common();
 uint32_t compute_crc32c(const uint8_t* data, size_t length);
 void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t size);
 void deinit_symbols(common_processing_context* ctx);
-void symbol_find_common(const common_processing_context* ctx);
-void symbol_get_path_common(const common_processing_context* ctx);
-void symbol_set_path_common(const common_processing_context* ctx);
+void symbol_find_at_address(const common_processing_context* ctx);
+void symbol_get_path(const common_processing_context* ctx);
+void symbol_set_path(const common_processing_context* ctx);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))
