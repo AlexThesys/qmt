@@ -13,7 +13,8 @@ const char* unknown_command = "Unknown command.\n";
 const char* command_not_implemented = "Command not implemented.\n";
 static const char* error_parsing_the_input = "Error parsing the input.\n";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
-                                "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list"};
+                                "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list", 
+                                "-s", "--disable-symbols"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
 static const char* program_version = "Version 0.3.7";
 static const char* program_name = "Quick Memory Tools";
@@ -24,6 +25,7 @@ int g_show_failed_readings = 0;
 inspection_mode g_inspection_mode = inspection_mode::im_none;
 int g_purge_standby_pages = 0;
 int g_disable_page_caching = 0;
+int g_disable_symbols = 0;
 
 static void clear_screen();
 
@@ -267,6 +269,7 @@ static void print_help() {
 #ifndef DISABLE_STANDBY_LIST_PURGE
     puts("-c || --clear-standby-list\t\t\t -- clear standby physical pages (dump mode only)");
 #endif // DISABLE_STANDBY_LIST_PURGE
+    puts("-s || --disable-symbols\t\t\t\t -- disable symbol detection");
     puts("");
 }
 
@@ -320,11 +323,15 @@ bool parse_cmd_args(int argc, const char** argv) {
         } else if ((0 == strcmp(argv[i], cmd_args[14])) || (argv[i] == strstr(argv[i], cmd_args[15]))) { // disable page caching
             g_disable_page_caching = 1;
             selected_options |= 1 << 8;
-        } else if ((0 == strcmp(argv[i], cmd_args[16])) || (argv[i] == strstr(argv[i], cmd_args[17]))) { // clear standby pages
+        }
+        else if ((0 == strcmp(argv[i], cmd_args[16])) || (argv[i] == strstr(argv[i], cmd_args[17]))) { // clear standby pages
 #ifndef DISABLE_STANDBY_LIST_PURGE
             g_purge_standby_pages = 1;
             selected_options |= 1 << 9;
 #endif // DISABLE_STANDBY_LIST_PURGE
+        } else if ((0 == strcmp(argv[i], cmd_args[18])) || (argv[i] == strstr(argv[i], cmd_args[19]))) { // disable symbols
+            g_disable_symbols = 1;
+            selected_options |= 1 << 10;
         }
             // ...
     }
@@ -375,7 +382,9 @@ void print_help_main_common() {
     puts("clear\t\t\t - clear screen");
     puts("i?\t\t\t - display inspection commands");
     puts("l?\t\t\t - display list commands");
-    puts("s?\t\t\t - display symbols commands");
+    if (!g_disable_symbols) {
+        puts("s?\t\t\t - display symbols commands");
+    }
     puts("x?\t\t\t - display hexdump commands");
     puts("q | exit\t\t - quit program");
 }
@@ -926,6 +935,10 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         ctx->cdata.op = op;
         command = c_calculate;
     } else if (cmd[0] == 's') {
+        if (g_disable_symbols) {
+            fprintf(stderr, unknown_command);
+            return c_continue;
+        }
         if (cmd[1] == '?') {
             return c_help_symbols;
         }

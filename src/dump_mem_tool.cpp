@@ -719,6 +719,9 @@ static void print_help_calculate() {
 }
 
 static void print_help_symbols() {
+    if (g_disable_symbols) {
+        return;
+    }
     print_help_symbols_common();
     puts("------------------------------------\n");
 }
