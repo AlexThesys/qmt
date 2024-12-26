@@ -968,7 +968,6 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             }
 
             ctx->sym_ctx.symbol_info->Address = (DWORD64)p;
-            ctx->sym_ctx.sym_initialized = true;
             command = c_symbol_resolve_at_address;
         } else if (cmd[1] == 'n') {
             const size_t cmd_len = strlen(cmd);
@@ -980,7 +979,6 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             }
             memset(ctx->sym_ctx.symbol_info->Name, 0, MAX_SYM_NAME * sizeof(TCHAR));
             memcpy(ctx->sym_ctx.symbol_info->Name, cmd + name_offset, cmd_len - name_offset);
-            ctx->sym_ctx.sym_initialized = true;
             command = c_symbol_resolve_by_name;
         } else if (cmd[1] == 'f') {
             command = c_symbol_resolve_fwd;
@@ -1296,8 +1294,10 @@ void symbol_find_at_address(common_processing_context* ctx) {
     if (SymFromAddr(ctx->sym_ctx.process, address, &displacement, symbol_info)) {
         printf("Address: 0x%016llx\n", address);
         print_symbol_info(symbol_info);
+        ctx->sym_ctx.sym_initialized = true;
     } else {
         printf("Failed to resolve symbol for address 0x%016llx.\n", address);
+        ctx->sym_ctx.sym_initialized = false;
     }
 }
 
@@ -1313,12 +1313,12 @@ void symbol_find_by_name(common_processing_context* ctx) {
     symbol_info->SizeOfStruct = sizeof(SYMBOL_INFO);
     symbol_info->MaxNameLen = MAX_SYM_NAME;
 
-    DWORD64 displacement = 0;
-
     if (SymFromName(ctx->sym_ctx.process, name, symbol_info)) {
         print_symbol_info(symbol_info);
+        ctx->sym_ctx.sym_initialized = true;
     } else {
         printf("Failed to resolve symbol %s.\n", name);
+        ctx->sym_ctx.sym_initialized = false;
     }
 }
 
