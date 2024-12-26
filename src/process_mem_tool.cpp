@@ -2,9 +2,14 @@
 
 #pragma comment(lib, "Onecore.lib")
 
+const char* select_pid_first = "Select the PID first.\n";
+const char* handle_invalid = "The process handle is not longer valid.\n";
+
 struct proc_processing_context {
     common_processing_context common;
     DWORD pid;
+    HANDLE process;
+    bool process_initialized = false;
 };
 
 struct block_info_proc {
@@ -16,7 +21,6 @@ struct block_info_proc {
 struct search_context_proc {
     circular_buffer<block_info_proc, SEARCH_DATA_QUEUE_SIZE_POW2> block_info_queue;
     std::vector<MEMORY_BASIC_INFORMATION> mem_info;
-    HANDLE process = NULL;
     uint64_t block_size_ideal = 0;
     proc_processing_context *ctx = nullptr;
     search_context_common common{};
@@ -34,9 +38,9 @@ struct thread_info_proc {
 static int list_processes();
 static int list_process_modules(const proc_processing_context* ctx, bool show_selected);
 static int list_process_threads(const proc_processing_context* ctx, bool show_selected);
-static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy, bool redirected);
+static int traverse_heap_list(const proc_processing_context* ctx, bool list_blocks, bool calculate_entropy, bool redirected);
 static void print_error(TCHAR const* msg);
-static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info);
+static bool gather_thread_info(const proc_processing_context* ctx, std::vector<thread_info_proc>& thread_info);
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
 static void print_memory_usage(const proc_processing_context* ctx);
 static bool test_selected_pid(proc_processing_context* ctx);
@@ -46,8 +50,16 @@ static void print_module_info(const proc_processing_context* ctx, const wchar_t*
 static bool init_symbols(proc_processing_context* ctx);
 static void symbol_find(proc_processing_context* ctx);
 
+static bool is_process_handle_valid(HANDLE process) {
+    DWORD exit_code;
+    if (GetExitCodeProcess(process, &exit_code)) {
+        return exit_code == STILL_ACTIVE;
+    }
+    return false;
+}
+
 static void find_pattern(search_context_proc* search_ctx) {
-    HANDLE process = search_ctx->process;
+    HANDLE process = search_ctx->ctx->process;
     const char* pattern = search_ctx->ctx->common.pdata.pattern;
     const int64_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
     auto& matches = search_ctx->common.matches;
@@ -173,12 +185,12 @@ static void search_and_sync(search_context_proc& search_ctx) {
 
     std::vector<thread_info_proc> thread_info;
     if ((ctx.common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx.common.pdata.scope_type == search_scope_type::mrt_other)) {
-        gather_thread_info(search_ctx.ctx->pid, thread_info);
+        gather_thread_info(search_ctx.ctx, thread_info);
     }
 
     // collect memory regions
     auto& mem_info = search_ctx.mem_info;
-    const HANDLE process = search_ctx.process;
+    const HANDLE process = search_ctx.ctx->process;
     const size_t pattern_len = ctx.common.pdata.pattern_len;
     const bool ranged_search = ctx.common.pdata.scope_type == search_scope_type::mrt_range;
 
@@ -271,7 +283,7 @@ static void print_search_results(search_context_proc& search_ctx) {
     uint64_t prev_info_id = (uint64_t)(-1);
 
     std::vector<thread_info_proc> thread_info;
-    gather_thread_info(search_ctx.ctx->pid, thread_info);
+    gather_thread_info(search_ctx.ctx, thread_info);
 
     for (size_t i = 0; i < num_matches; i++) {
         const size_t info_id = search_ctx.common.matches[i].info_id;
@@ -280,7 +292,7 @@ static void print_search_results(search_context_proc& search_ctx) {
             const MEMORY_BASIC_INFORMATION& r_info = search_ctx.mem_info[info_id];
             if (r_info.Type == MEM_IMAGE) {
                 char module_name[MAX_PATH];
-                if (GetModuleFileNameExA(search_ctx.process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
+                if (GetModuleFileNameExA(search_ctx.ctx->process, (HMODULE)r_info.AllocationBase, module_name, MAX_PATH)) {
                     printf("Module name: %s\n", module_name);
                 }
             } else {
@@ -313,8 +325,13 @@ static bool try_open_process(DWORD pid, HANDLE& process) {
 
 static void search_pattern_in_memory(proc_processing_context* ctx) {
     assert(ctx->common.pdata.pattern != nullptr);
-    HANDLE process;
-    if (!try_open_process(ctx->pid, process)) {
+
+    if (!ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
+        return;
+    }
+    if (!is_process_handle_valid(ctx->process)) {
+        fprintf(stderr, handle_invalid);
         return;
     }
 
@@ -324,7 +341,7 @@ static void search_pattern_in_memory(proc_processing_context* ctx) {
     }
 
     char proc_name[MAX_PATH];
-    if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
+    if (GetModuleFileNameExA(ctx->process, NULL, proc_name, MAX_PATH)) {
         printf("Process name: %s\n\n", proc_name);
     }
 
@@ -333,13 +350,10 @@ static void search_pattern_in_memory(proc_processing_context* ctx) {
 
     search_context_proc search_ctx{};
     search_ctx.ctx = ctx;
-    search_ctx.process = process;
     search_ctx.common.exit_workers = 0;
 
     search_and_sync(search_ctx);
     print_search_results(search_ctx);
-
-    CloseHandle(process);
 }
 
 static void print_hexdump_proc(proc_processing_context* ctx) {
@@ -347,10 +361,16 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
     uint8_t* buffer = nullptr;
     size_t bytes_to_read = 0;
 
-    HANDLE process;
-    if (!try_open_process(ctx->pid, process)) {
+    if (!ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
         return;
     }
+    if (!is_process_handle_valid(ctx->process)) {
+        fprintf(stderr, handle_invalid);
+        return;
+    }
+
+    HANDLE process = ctx->process;
 
     char proc_name[MAX_PATH];
     if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
@@ -374,7 +394,6 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
                     if (!res || !bytes_read) {
                         fprintf(stderr, "Error reading the memory region.\n");
                         free(buffer);
-                        CloseHandle(process);
                         return;
                     }
                     if (bytes_to_read == bytes_read) {
@@ -393,7 +412,6 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
     if (0 == bytes_to_read) {
         puts("Address not found in commited memory ranges.");
         free(buffer);
-        CloseHandle(process);
         return;
     }
 
@@ -415,8 +433,6 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
     print_hexdump(ctx->common.hdata, buffer, bytes_to_read);
 
     free(buffer);
-
-    CloseHandle(process);
 }
 
 static void print_help_main() {
@@ -539,9 +555,9 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
 }
 
 static void execute_command(input_command cmd, proc_processing_context *ctx) {
-    const bool pid_required = (cmd > c_help_commands_number) && (cmd != c_list_pids) && (cmd != c_inspect_image);
-    if (pid_required && (ctx->pid == INVALID_ID)) {
-        fprintf(stderr, "Select the PID first!\n");
+    const bool pid_required = (cmd > c_help_commands_number) && (cmd != c_list_pids) && (cmd != c_inspect_image) && (cmd != c_test_pid);
+    if (pid_required && !ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
         return;
     }
 
@@ -664,19 +680,19 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         break;
     case c_travers_heap:
         try_redirect_output_to_file(&ctx->common);
-        traverse_heap_list(ctx->pid, false, false, output_redirected(&ctx->common));
+        traverse_heap_list(ctx, false, false, output_redirected(&ctx->common));
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
     case c_travers_heap_calc_entropy:
         try_redirect_output_to_file(&ctx->common);
-        traverse_heap_list(ctx->pid, false, true, output_redirected(&ctx->common));
+        traverse_heap_list(ctx, false, true, output_redirected(&ctx->common));
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
     case c_travers_heap_blocks:
         try_redirect_output_to_file(&ctx->common);
-        traverse_heap_list(ctx->pid, true, false, output_redirected(&ctx->common));
+        traverse_heap_list(ctx, true, false, output_redirected(&ctx->common));
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -701,7 +717,7 @@ int run_process_inspection() {
     }
 
     search_data_info sdata;
-    proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, INVALID_ID };
+    proc_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, INVALID_ID, NULL, false };
 
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
@@ -724,6 +740,11 @@ int run_process_inspection() {
     }
 
     deinit_symbols(&ctx.common);
+    if (ctx.process_initialized && is_process_handle_valid(ctx.process)) {
+        if (!CloseHandle(ctx.process)) {
+            fprintf(stderr, "Failed closing the handle for PID: 0x%%x\n", ctx.pid);
+        }
+    }
 
     return 0;
 }
@@ -862,8 +883,8 @@ static int get_thread_stack_base(HANDLE hThread, HANDLE process, stack_info *res
     return stack_base_found;
 }
 
-static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info) {
-       HANDLE hThreadSnap = INVALID_HANDLE_VALUE;
+static bool gather_thread_info(const proc_processing_context* ctx, std::vector<thread_info_proc>& thread_info) {
+    HANDLE hThreadSnap = INVALID_HANDLE_VALUE;
     THREADENTRY32 te32;
     stack_info si = { NULL, 0 };
 
@@ -883,17 +904,21 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>
         return (FALSE);
     }
 
-    HANDLE process;
-    if (!try_open_process(dw_owner_pid, process)) {
-        CloseHandle(hThreadSnap);
+    if (!ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
         return (FALSE);
     }
+    if (!is_process_handle_valid(ctx->process)) {
+        fprintf(stderr, handle_invalid);
+        return (FALSE);
+    }
+    HANDLE process = ctx->process;
 
     // Now walk the thread list of the system,
     // and display information about each thread
     // associated with the specified process
     do {
-        if (te32.th32OwnerProcessID == dw_owner_pid) {
+        if (te32.th32OwnerProcessID == ctx->pid) {
             HANDLE hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, te32.th32ThreadID);
             if (hThread != NULL) {
                 if (!get_thread_stack_base(hThread, process, &si)) {
@@ -906,14 +931,13 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>
         }
     } while (Thread32Next(hThreadSnap, &te32));
 
-    CloseHandle(process);
     CloseHandle(hThreadSnap);
 }
 
 static int list_process_threads(const proc_processing_context* ctx, bool show_selected) {
     std::vector<thread_info_proc> thread_info;
 
-    if (!gather_thread_info(ctx->pid, thread_info)) {
+    if (!gather_thread_info(ctx, thread_info)) {
         return false;
     }
 
@@ -937,10 +961,10 @@ static int list_process_threads(const proc_processing_context* ctx, bool show_se
     return true;
 }
 
-static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_entropy, bool redirected) {
+static int traverse_heap_list(const proc_processing_context* ctx, bool list_blocks, bool calculate_entropy, bool redirected) {
     HEAPLIST32 hl;
 
-    HANDLE hHeapSnap = CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, dw_pid);
+    HANDLE hHeapSnap = CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, ctx->pid);
 
     hl.dwSize = sizeof(HEAPLIST32);
 
@@ -950,10 +974,9 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
     }
 
     if (Heap32ListFirst(hHeapSnap, &hl)) {
-        HANDLE process = 0;
         if (calculate_entropy) {
-            if (!try_open_process(dw_pid, process)) {
-                fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+            if (!ctx->process_initialized || !is_process_handle_valid(ctx->process)) {
+                fprintf(stderr, select_pid_first);
                 puts("Entropy won't be computed!");
                 calculate_entropy = 0;
             }
@@ -967,7 +990,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
             HEAPENTRY32 he;
             ZeroMemory(&he, sizeof(HEAPENTRY32));
             he.dwSize = sizeof(HEAPENTRY32);
-            if (Heap32First(&he, dw_pid, hl.th32HeapID)) {
+            if (Heap32First(&he, ctx->pid, hl.th32HeapID)) {
                 printf("\n---- Heap ID: 0x%x ----\n", hl.th32HeapID);
 
                 ULONG_PTR start_address = he.dwAddress;
@@ -1000,13 +1023,12 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
                                 ent_buffer = buf;
                             } else {
                                 fprintf(stderr, "Buffer allocation faied! Error code: %lu\n", GetLastError());
-                                CloseHandle(process);
                                 CloseHandle(hHeapSnap);
                                 return -1;
                             }
                         }
                         SIZE_T bytes_read;
-                        if (ReadProcessMemory(process, (LPCVOID)he.dwAddress, (LPVOID)ent_buffer, he.dwBlockSize, &bytes_read) && (bytes_read == he.dwBlockSize)) {
+                        if (ReadProcessMemory(ctx->process, (LPCVOID)he.dwAddress, (LPVOID)ent_buffer, he.dwBlockSize, &bytes_read) && (bytes_read == he.dwBlockSize)) {
                             entropy_calculate_frequencies(&e_ctx, ent_buffer, he.dwBlockSize);
                             total_size_blocks += he.dwBlockSize;
                         } else {
@@ -1036,9 +1058,6 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
             hl.dwSize = sizeof(HEAPLIST32);
         } while (Heap32ListNext(hHeapSnap, &hl));
 
-        if (calculate_entropy) {
-            CloseHandle(process);
-        }
     } else {
         printf("Cannot list first heap (%d)\n", GetLastError());
     }
@@ -1051,10 +1070,14 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
 }
 
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited) {
-    HANDLE process;
-    if (!try_open_process(ctx->pid, process)) {
+    if (!ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
+    }
+    if (!is_process_handle_valid(ctx->process)) {
+        fprintf(stderr, handle_invalid);
         return;
     }
+    HANDLE process = ctx->process;
 
     const bool redirected = output_redirected(&ctx->common);
 
@@ -1066,7 +1089,7 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
 
     std::vector<thread_info_proc> thread_info;
     if ((ctx->common.pdata.scope_type == search_scope_type::mrt_stack) || (ctx->common.pdata.scope_type == search_scope_type::mrt_other)) {
-        gather_thread_info(ctx->pid, thread_info);
+        gather_thread_info(ctx, thread_info); //  this is bad, but we can still proceed
     }
 
     puts("====================================\n");
@@ -1081,7 +1104,6 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
 
         if (check_num_results && (num_regions >= TOO_MANY_RESULTS)) {
             if (too_many_results(num_regions, redirected, false)) {
-                CloseHandle(process);
                 return;
             }
             check_num_results = false;
@@ -1100,8 +1122,6 @@ static void list_memory_regions_info(const proc_processing_context* ctx, bool sh
     }
     puts("");
     printf("*** Number of Memory Info Entries: %llu ***\n\n", num_regions);
-
-    CloseHandle(process);
 }
 
 static void print_error(TCHAR const* msg) {
@@ -1147,10 +1167,14 @@ void print_process_memory_info(HANDLE process_handle) {
 }
 
 static void print_memory_usage(const proc_processing_context* ctx) {
-    HANDLE process;
-    if (!try_open_process(ctx->pid, process)) {
+    if (!ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
+    }
+    if (!is_process_handle_valid(ctx->process)) {
+        fprintf(stderr, handle_invalid);
         return;
     }
+    HANDLE process = ctx->process;
 
     char proc_name[MAX_PATH];
     if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
@@ -1173,16 +1197,24 @@ static void print_memory_usage(const proc_processing_context* ctx) {
     }
     puts("");
 
-    CloseHandle(process);
     return;
 }
 
 static bool test_selected_pid(proc_processing_context* ctx) {
+    if (is_process_handle_valid(ctx->process)) {
+        if (!CloseHandle(ctx->process)) {
+            fprintf(stderr, "Failed closing the handle for PID: 0x%%x\n", ctx->pid);
+        }
+    }
     HANDLE process;
     if (!try_open_process(ctx->pid, process)) {
         ctx->pid = INVALID_ID;
+        ctx->process_initialized = false;
         return false;
     }
+
+    ctx->process = process;
+    ctx->process_initialized = true;
 
     print_memory_usage(ctx);
 
@@ -1194,7 +1226,7 @@ static bool test_selected_pid(proc_processing_context* ctx) {
 
 static DWORD is_on_stack(const proc_processing_context* ctx, const MEMORY_BASIC_INFORMATION* r_info) {
     std::vector<thread_info_proc> thread_info;
-    gather_thread_info(ctx->pid, thread_info);
+    gather_thread_info(ctx, thread_info);
     DWORD tid = INVALID_ID;
 
     for (const auto& ti : thread_info) {
@@ -1219,15 +1251,18 @@ static void print_region_flags(const WIN32_MEMORY_REGION_INFORMATION* flags) {
 }
 
 static void print_memory_info(const proc_processing_context* ctx) {
-    HANDLE process;
-    if (!try_open_process(ctx->pid, process)) {
+    if (!ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
+    }
+    if (!is_process_handle_valid(ctx->process)) {
+        fprintf(stderr, handle_invalid);
         return;
     }
+    HANDLE process = ctx->process;
 
     MEMORY_BASIC_INFORMATION r_info;
     if (VirtualQueryEx(process, ctx->common.i_data.memory_address, &r_info, sizeof(r_info)) != sizeof(r_info)) {
         fprintf(stderr, "Error virtual query ex failed.\n");
-        CloseHandle(process);
         return;
     }
 
@@ -1256,7 +1291,6 @@ static void print_memory_info(const proc_processing_context* ctx) {
         printf("Range Commit Size: 0x%llx bytes\n", (uint64_t)mem_info.CommitSize);
         print_region_flags(&mem_info);
     }
-    CloseHandle(process);
 }
 
 static void data_block_calculate(proc_processing_context* ctx) {
@@ -1264,10 +1298,14 @@ static void data_block_calculate(proc_processing_context* ctx) {
     uint8_t* buffer = nullptr;
     size_t bytes_to_read = 0;
 
-    HANDLE process;
-    if (!try_open_process(ctx->pid, process)) {
+    if (!ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
+    }
+    if (!is_process_handle_valid(ctx->process)) {
+        fprintf(stderr, handle_invalid);
         return;
     }
+    HANDLE process = ctx->process;
 
     char proc_name[MAX_PATH];
     if (GetModuleFileNameExA(process, NULL, proc_name, MAX_PATH)) {
@@ -1289,7 +1327,6 @@ static void data_block_calculate(proc_processing_context* ctx) {
                     if (!res || !bytes_read) {
                         fprintf(stderr, "Error reading the memory region.\n");
                         free(buffer);
-                        CloseHandle(process);
                         return;
                     }
                     if (bytes_to_read != bytes_read) {
@@ -1306,22 +1343,23 @@ static void data_block_calculate(proc_processing_context* ctx) {
     if (0 == bytes_to_read) {
         puts("Address not found in commited memory ranges.");
         free(buffer);
-        CloseHandle(process);
         return;
     }
 
     data_block_calculate_common(&ctx->common.cdata, buffer, bytes_to_read);
 
     free(buffer);
-
-    CloseHandle(process);
 }
 
 void print_module_info(const proc_processing_context* ctx, const wchar_t *module_name) {
-    HANDLE process;
-    if (!try_open_process(ctx->pid, process)) {
+    if (!ctx->process_initialized) {
+        fprintf(stderr, select_pid_first);
+    }
+    if (!is_process_handle_valid(ctx->process)) {
+        fprintf(stderr, handle_invalid);
         return;
     }
+    HANDLE process = ctx->process;
     HMODULE *modules = NULL;
     DWORD cb_needed = 0;
     MODULEINFO module_info;
@@ -1331,7 +1369,6 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
     // First call to get the number of modules
     if (!EnumProcessModules(process, NULL, 0, &cb_needed)) {
         fprintf(stderr, "Failed to enumerate modules for the process.\n");
-        CloseHandle(process);
         return;
     }
 
@@ -1339,14 +1376,12 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
     modules = (HMODULE *)malloc(cb_needed);
     if (!modules) {
         fprintf(stderr, "Memory allocation failed.\n");
-        CloseHandle(process);
         return;
     }
 
     // Second call to get the actual module handles
     if (!EnumProcessModules(process, modules, cb_needed, &cb_needed)) {
         fprintf(stderr, "Failed to enumerate modules for the process.\n");
-        CloseHandle(process);
         free(modules);
         return;
     }
@@ -1389,21 +1424,15 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
 
     // Clean up
     free(modules);
-
-    CloseHandle(process);
 }
 
 static bool init_symbols(proc_processing_context* ctx) {
     if (!ctx->common.sym_ctx.initialized) {
-        HANDLE process;
-        if (!try_open_process(ctx->pid, process)) {
-            return false;
-        }
-        if (!SymInitialize(process, NULL, TRUE)) {
+        if (!SymInitialize(ctx->process, NULL, TRUE)) {
             fprintf(stderr, "Failed to initialise symbol handler. Error: %lu\n", GetLastError());
             return false;
         }
-        ctx->common.sym_ctx.process = process;
+        ctx->common.sym_ctx.process = ctx->process;
         ctx->common.sym_ctx.initialized = true;
         SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     }
