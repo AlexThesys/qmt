@@ -100,6 +100,8 @@ enum input_command {
     c_calculate,
 
     c_symbol_detect,
+    c_symbol_set_path,
+    c_symbol_get_path,
 
     c_travers_heap,
     c_travers_heap_calc_entropy,
@@ -263,6 +265,8 @@ uint32_t compute_crc32c(const uint8_t* data, size_t length);
 void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t size);
 void deinit_symbols(common_processing_context* ctx);
 void symbol_find_common(const common_processing_context* ctx);
+void symbol_get_path_common(const common_processing_context* ctx);
+void symbol_set_path_common(const common_processing_context* ctx);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))

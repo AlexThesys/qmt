@@ -443,6 +443,8 @@ void print_help_calculate_common() {
 void print_help_symbols_common() {
     puts("\n------------------------------------");
     puts("s@<address>\t\t - detect symbol at <address>");
+    puts("sp<path0;path1;..>\t\t - set symbol search paths (separated by ';')");
+    puts("sp\t\t\t - get symbol search paths");
 }
 
 inline search_scope_type set_scope(char ch) {
@@ -942,13 +944,26 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         if (cmd[1] == '?') {
             return c_help_symbols;
         }
-        void* p = nullptr;
-        if (!get_ptr(cmd + 1, &p)) {
-            return c_continue;
+
+        if (cmd[1] == 'p') {
+            if (cmd[2] == 0) {
+                command = c_symbol_get_path;
+            } else {
+                const size_t cmd_len = strlen(cmd);
+                const char* paths = skip_to_args(cmd, cmd_len);
+                strcpy_s(ctx->sym_ctx.paths, sizeof(ctx->sym_ctx.paths), paths);
+                command = c_symbol_set_path;
+            }
+        } else if (cmd[1] == '@' || cmd[1] == ' ') {
+            void* p = nullptr;
+            if (!get_ptr(cmd + 1, &p)) {
+                return c_continue;
+            }
+
+            ctx->sym_ctx.search_data.address = (DWORD64)p;
+            command = c_symbol_detect;
         }
 
-        ctx->sym_ctx.search_data.address = (DWORD64)p;
-        command = c_symbol_detect;
     } else {
         command = c_not_set;
     }
@@ -1231,7 +1246,7 @@ void deinit_symbols(common_processing_context* ctx) {
 }
 
 void symbol_find_common(const common_processing_context* ctx) {
-        const DWORD64 address = ctx->sym_ctx.search_data.address;
+    const DWORD64 address = ctx->sym_ctx.search_data.address;
     char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
     PSYMBOL_INFO symbol_info = (PSYMBOL_INFO)symbol_buffer;
 
@@ -1246,5 +1261,21 @@ void symbol_find_common(const common_processing_context* ctx) {
         //printf("Displacement: 0x%llx\n", displacement);
     } else {
         printf("Failed to resolve symbol for address 0x%016llx.\n", address);
+    }
+}
+
+void symbol_get_path_common(const common_processing_context* ctx) {
+    char search_path[SYMBOL_PATHS_SIZE];
+    memset(search_path, 0, sizeof(search_path));
+    if (!SymGetSearchPath(ctx->sym_ctx.process, search_path, sizeof(search_path))) {
+        fprintf(stderr, "Failed to get the symbol search path");
+        return;
+    }
+    printf("Symbol search path: %s\n", search_path);
+}
+
+void symbol_set_path_common(const common_processing_context* ctx) {
+    if (!SymSetSearchPath(ctx->sym_ctx.process, ctx->sym_ctx.paths)) {
+        fprintf(stderr, "Failed to set the symbol search path");
     }
 }
