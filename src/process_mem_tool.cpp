@@ -1455,13 +1455,41 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
 
 static bool init_symbols(proc_processing_context* ctx) {
     if (!ctx->common.sym_ctx.ctx_initialized) {
-        if (!SymInitialize(ctx->process, NULL, TRUE)) {
+        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+
+        if (!SymInitialize(ctx->process, NULL, FALSE)) {
             fprintf(stderr, "Failed to initialise symbol handler. Error: %lu\n", GetLastError());
             return false;
         }
+
+        // add executable path to the search path
+        char search_path[SYMBOL_PATHS_SIZE];
+        memset(search_path, 0, sizeof(search_path));
+        if (SymGetSearchPath(ctx->process, search_path, MAX_PATH)) {
+            size_t path_len = strlen(search_path);
+            search_path[path_len++] = ';';
+            char* module_path = search_path + path_len;
+            if (GetModuleFileNameExA(ctx->process, NULL, module_path, SYMBOL_PATHS_SIZE - path_len)) {
+                size_t module_len = strlen(module_path);
+                while (module_len--) {
+                    if (module_path[module_len] == '\\' || module_path[module_len] == '/') {
+                        break;
+                    }
+                    else {
+                        module_path[module_len] = 0;
+                    }
+                }
+                if (!SymSetSearchPath(ctx->process, search_path)) {
+                    fprintf(stderr, "Failed to set the symbol search path.\n");
+                }
+            }
+        }
+        if (!SymRefreshModuleList(ctx->process)) {
+            fprintf(stderr, "Failed to refresh the module list.\n");
+        }
+
         ctx->common.sym_ctx.process = ctx->process;
         ctx->common.sym_ctx.ctx_initialized = true;
-        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     }
     return true;
 }
