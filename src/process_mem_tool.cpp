@@ -673,9 +673,27 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_symbol_detect:
+    case c_symbol_resolve_at_address:
         try_redirect_output_to_file(&ctx->common);
         symbol_find_at_address(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_symbol_resolve_by_name:
+        try_redirect_output_to_file(&ctx->common);
+        symbol_find_by_name(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_symbol_resolve_fwd:
+        try_redirect_output_to_file(&ctx->common);
+        symbol_find_next(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_symbol_resolve_bwd:
+        try_redirect_output_to_file(&ctx->common);
+        symbol_find_prev(&ctx->common);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -1436,13 +1454,13 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
 }
 
 static bool init_symbols(proc_processing_context* ctx) {
-    if (!ctx->common.sym_ctx.initialized) {
+    if (!ctx->common.sym_ctx.ctx_initialized) {
         if (!SymInitialize(ctx->process, NULL, TRUE)) {
             fprintf(stderr, "Failed to initialise symbol handler. Error: %lu\n", GetLastError());
             return false;
         }
         ctx->common.sym_ctx.process = ctx->process;
-        ctx->common.sym_ctx.initialized = true;
+        ctx->common.sym_ctx.ctx_initialized = true;
         SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     }
     return true;

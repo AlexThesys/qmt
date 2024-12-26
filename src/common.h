@@ -99,7 +99,10 @@ enum input_command {
 
     c_calculate,
 
-    c_symbol_detect,
+    c_symbol_resolve_at_address,
+    c_symbol_resolve_by_name,
+    c_symbol_resolve_fwd,
+    c_symbol_resolve_bwd,
     c_symbol_set_path,
     c_symbol_get_path,
 
@@ -184,12 +187,12 @@ struct calculate_data {
 };
 
 struct symbol_context {
-    struct {
-        DWORD64 address = 0;
-    } search_data;
+    char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+    PSYMBOL_INFO symbol_info = (PSYMBOL_INFO)symbol_buffer;
     HANDLE process;
     char paths[SYMBOL_PATHS_SIZE];
-    bool initialized = false;
+    bool ctx_initialized = false;
+    bool sym_initialized = false;
 };
 
 struct common_processing_context {
@@ -247,24 +250,30 @@ bool too_many_results(size_t num_lines, bool redirected, bool precise=true);
 const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* substr, size_t substr_sz);
 char* skip_to_args(char* cmd, size_t len);
 bool parse_cmd_args(int argc, const char** argv);
+
 void print_help_main_common();
 void print_help_search_common();
 void print_help_redirect_common();
 void print_help_hexdump_common();
 void print_help_list_common();
 void print_help_inspect_common();
+void print_help_calculate_common();
 void print_help_symbols_common();
+
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* pattern);
 uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
 void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t length);
 void try_redirect_output_to_file(common_processing_context* ctx);
 void redirect_output_to_stdout(common_processing_context* ctx);
 void print_image_info(const common_processing_context* ctx);
-void print_help_calculate_common();
 uint32_t compute_crc32c(const uint8_t* data, size_t length);
+
 void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t size);
 void deinit_symbols(common_processing_context* ctx);
-void symbol_find_at_address(const common_processing_context* ctx);
+void symbol_find_at_address(common_processing_context* ctx);
+void symbol_find_by_name(common_processing_context* ctx);
+void symbol_find_next(common_processing_context* ctx);
+void symbol_find_prev(common_processing_context* ctx);
 void symbol_get_path(const common_processing_context* ctx);
 void symbol_set_path(const common_processing_context* ctx);
 

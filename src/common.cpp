@@ -269,7 +269,7 @@ static void print_help() {
 #ifndef DISABLE_STANDBY_LIST_PURGE
     puts("-c || --clear-standby-list\t\t\t -- clear standby physical pages (dump mode only)");
 #endif // DISABLE_STANDBY_LIST_PURGE
-    puts("-s || --disable-symbols\t\t\t\t -- disable symbol detection");
+    puts("-s || --disable-symbols\t\t\t\t -- disable symbol resolution");
     puts("");
 }
 
@@ -442,7 +442,10 @@ void print_help_calculate_common() {
 
 void print_help_symbols_common() {
     puts("\n------------------------------------");
-    puts("s@<address>\t\t - detect symbol at <address>");
+    puts("s@<address>\t\t - resolve symbol at <address>");
+    puts("sn <name>\t\t - resolve symbol by <name>");
+    puts("sf \t\t - show next symbol");
+    puts("sb \t\t - show previous symbol");
     puts("sp<path0;path1;..>\t\t - set symbol search paths (separated by ';')");
     puts("sp\t\t\t - get symbol search paths");
 }
@@ -964,8 +967,28 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 return c_continue;
             }
 
-            ctx->sym_ctx.search_data.address = (DWORD64)p;
-            command = c_symbol_detect;
+            ctx->sym_ctx.symbol_info->Address = (DWORD64)p;
+            ctx->sym_ctx.sym_initialized = true;
+            command = c_symbol_resolve_at_address;
+        } else if (cmd[1] == 'n') {
+            const size_t cmd_len = strlen(cmd);
+            size_t name_offset = 2;
+            name_offset += skip_whitespace(cmd + name_offset, cmd_len);
+            if (name_offset > cmd_len) {
+                fprintf(stderr, error_parsing_the_input);
+                return c_continue;
+            }
+            memset(ctx->sym_ctx.symbol_info->Name, 0, MAX_SYM_NAME * sizeof(TCHAR));
+            memcpy(ctx->sym_ctx.symbol_info->Name, cmd + name_offset, cmd_len - name_offset);
+            ctx->sym_ctx.sym_initialized = true;
+            command = c_symbol_resolve_by_name;
+        } else if (cmd[1] == 'f') {
+            command = c_symbol_resolve_fwd;
+        } else if (cmd[1] == 'b') {
+            command = c_symbol_resolve_bwd;
+        } else {
+            fprintf(stderr, unknown_command);
+            return c_continue;
         }
 
     } else {
@@ -1240,24 +1263,30 @@ void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t s
 }
 
 void deinit_symbols(common_processing_context* ctx) {
-    if (ctx->sym_ctx.initialized) {
+    if (ctx->sym_ctx.ctx_initialized) {
         if (!SymCleanup(ctx->sym_ctx.process)) {
             fprintf(stderr, "Failed to clean up symbol handler. Error: %lu\n", GetLastError());
         }
         CloseHandle(ctx->sym_ctx.process);
     }
-    ctx->sym_ctx.initialized = false;
+    ctx->sym_ctx.ctx_initialized = false;
+    ctx->sym_ctx.sym_initialized = false;
 }
 
-void symbol_find_at_address(const common_processing_context* ctx) {
-    if (!ctx->sym_ctx.initialized) {
-        fprintf(stderr, "Symbols haven't been initialized.");
+static void print_symbol_info(const SYMBOL_INFO* symbol_info) {
+    printf("Symbol: %s\n", symbol_info->Name);
+    printf("Address: 0x%016llx\n", symbol_info->Address);
+    // ...
+}
+
+void symbol_find_at_address(common_processing_context* ctx) {
+    if (!ctx->sym_ctx.ctx_initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.\n");
         return;
     }
 
-    const DWORD64 address = ctx->sym_ctx.search_data.address;
-    char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
-    PSYMBOL_INFO symbol_info = (PSYMBOL_INFO)symbol_buffer;
+    const DWORD64 address = ctx->sym_ctx.symbol_info->Address;
+    PSYMBOL_INFO symbol_info = ctx->sym_ctx.symbol_info;
 
     symbol_info->SizeOfStruct = sizeof(SYMBOL_INFO);
     symbol_info->MaxNameLen = MAX_SYM_NAME;
@@ -1266,16 +1295,70 @@ void symbol_find_at_address(const common_processing_context* ctx) {
 
     if (SymFromAddr(ctx->sym_ctx.process, address, &displacement, symbol_info)) {
         printf("Address: 0x%016llx\n", address);
-        printf("Symbol: %s\n", symbol_info->Name);
-        //printf("Displacement: 0x%llx\n", displacement);
+        print_symbol_info(symbol_info);
     } else {
         printf("Failed to resolve symbol for address 0x%016llx.\n", address);
     }
 }
 
+void symbol_find_by_name(common_processing_context* ctx) {
+    if (!ctx->sym_ctx.ctx_initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.\n");
+        return;
+    }
+
+    const PCSTR name = ctx->sym_ctx.symbol_info->Name;
+    PSYMBOL_INFO symbol_info = ctx->sym_ctx.symbol_info;
+
+    symbol_info->SizeOfStruct = sizeof(SYMBOL_INFO);
+    symbol_info->MaxNameLen = MAX_SYM_NAME;
+
+    DWORD64 displacement = 0;
+
+    if (SymFromName(ctx->sym_ctx.process, name, symbol_info)) {
+        print_symbol_info(symbol_info);
+    } else {
+        printf("Failed to resolve symbol %s.\n", name);
+    }
+}
+
+void symbol_find_next(common_processing_context* ctx) {
+    if (!ctx->sym_ctx.ctx_initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.\n");
+        return;
+    }
+    if (!ctx->sym_ctx.sym_initialized) {
+        fprintf(stderr, "Current symbol haven't been set yet.\n");
+        return;
+    }
+    PSYMBOL_INFO symbol_info = ctx->sym_ctx.symbol_info;
+    if (SymNext(ctx->sym_ctx.process, symbol_info)) {
+        print_symbol_info(symbol_info);
+    } else {
+        printf("Failed to resolve next symbol %s.\n");
+    }
+}
+
+void symbol_find_prev(common_processing_context* ctx) {
+    if (!ctx->sym_ctx.ctx_initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.\n");
+        return;
+    }
+    if (!ctx->sym_ctx.sym_initialized) {
+        fprintf(stderr, "Current symbol haven't been set yet.\n");
+        return;
+    }
+    PSYMBOL_INFO symbol_info = ctx->sym_ctx.symbol_info;
+    if (SymPrev(ctx->sym_ctx.process, symbol_info)) {
+        print_symbol_info(symbol_info);
+    } else {
+        printf("Failed to resolve previous symbol %s.\n");
+    }
+}
+
 void symbol_get_path(const common_processing_context* ctx) {
-    if (!ctx->sym_ctx.initialized) {
-        fprintf(stderr, "Symbols haven't been initialized.");
+    if (!ctx->sym_ctx.ctx_initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.\n");
         return;
     }
 
@@ -1289,8 +1372,8 @@ void symbol_get_path(const common_processing_context* ctx) {
 }
 
 void symbol_set_path(const common_processing_context* ctx) {
-    if (!ctx->sym_ctx.initialized) {
-        fprintf(stderr, "Symbols haven't been initialized.");
+    if (!ctx->sym_ctx.ctx_initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.\n");
         return;
     }
 
