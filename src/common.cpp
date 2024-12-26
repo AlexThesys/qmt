@@ -1245,6 +1245,6 @@ void symbol_find_common(const common_processing_context* ctx) {
         printf("Symbol: %s\n", symbol_info->Name);
         //printf("Displacement: 0x%llx\n", displacement);
     } else {
-        fprintf(stderr, "Failed to resolve symbol for address 0x%016llx. Error: %lu\n", address, GetLastError());
+        printf("Failed to resolve symbol for address 0x%016llx.\n", address);
     }
 }
