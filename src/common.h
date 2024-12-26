@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include <windows.h>
+#include <dbghelp.h>
 #include <psapi.h>
 #include <tlhelp32.h>
 #include <tchar.h>
@@ -43,6 +44,7 @@
 #define INVALID_ID ((DWORD)(-1))
 #define MAX_OP_HEX_STRING_LEN 0x40
 #define MAX_CALCULATION_BLOCK_SIZE 0x1000000
+#define SYMBOL_PATHS_SIZE (MAX_PATH * 8)
 
 //#define DISABLE_STANDBY_LIST_PURGE
 
@@ -72,11 +74,15 @@ enum input_command {
     c_help_hexdump,
     c_help_calculate,
     c_help_traverse_heap,
+    c_help_symbols,
     c_help_commands_number,
+
     c_search_pattern,
     c_search_pattern_in_registers,
-    c_list_pids,
+
     c_print_hexdump,
+
+    c_list_pids,
     c_list_modules,
     c_list_threads,
     c_list_thread_registers,
@@ -84,18 +90,25 @@ enum input_command {
     c_list_memory_regions_info,
     c_list_memory_regions_info_committed,
     c_list_handles,
+
     c_inspect_memory,
     c_inspect_module,
     c_inspect_thread,
     c_inspect_image,
     c_inspect_memory_usage,
+
     c_calculate,
+
+    c_symbol_detect,
+
     c_travers_heap,
     c_travers_heap_calc_entropy,
     c_travers_heap_blocks,
+
     c_test_pid,
-    c_continue,
+
     c_quit_program,
+    c_continue,
     c_not_set,
 };
 
@@ -168,6 +181,15 @@ struct calculate_data {
     calculate_op op;
 };
 
+struct symbol_context {
+    struct {
+        DWORD64 address = 0;
+    } search_data;
+    HANDLE process;
+    char paths[SYMBOL_PATHS_SIZE];
+    bool initialized = false;
+};
+
 struct common_processing_context {
     pattern_data pdata;
     hexdump_data hdata;
@@ -175,6 +197,7 @@ struct common_processing_context {
     char* command = nullptr;
     inspect_data i_data{ nullptr, INVALID_ID };
     calculate_data cdata{ nullptr, 0, calculate_op::co_none };
+    symbol_context sym_ctx;
 };
 
 struct search_data_info {
@@ -227,6 +250,7 @@ void print_help_redirect_common();
 void print_help_hexdump_common();
 void print_help_list_common();
 void print_help_inspect_common();
+void print_help_symbols_common();
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* pattern);
 uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
 void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t length);
@@ -236,6 +260,8 @@ void print_image_info(const common_processing_context* ctx);
 void print_help_calculate_common();
 uint32_t compute_crc32c(const uint8_t* data, size_t length);
 void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t size);
+void deinit_symbols(common_processing_context* ctx);
+void symbol_find_common(const common_processing_context* ctx);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))

@@ -1,5 +1,4 @@
 #include "common.h"
-#include <dbghelp.h>
 
 struct module_data {
     LPWSTR name;
@@ -719,6 +718,11 @@ static void print_help_calculate() {
     puts("------------------------------------\n");
 }
 
+static void print_help_symbols() {
+    print_help_symbols_common();
+    puts("------------------------------------\n");
+}
+
 static input_command parse_command(dump_processing_context *ctx, search_data_info *data, char *pattern) {
     //char* cmd = ctx->common.command;
     input_command command;
@@ -751,6 +755,9 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         break;
     case c_help_calculate:
         print_help_calculate();
+        break;
+    case c_help_symbols:
+        print_help_symbols();
         break;
     case c_search_pattern :
         wait_for_memory_regions_caching(&ctx->pages_caching_state);

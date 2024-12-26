@@ -38,11 +38,13 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
 static void print_error(TCHAR const* msg);
 static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>& thread_info);
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited);
-static bool print_memory_usage(proc_processing_context* ctx);
+static void print_memory_usage(const proc_processing_context* ctx);
 static bool test_selected_pid(proc_processing_context* ctx);
 static void print_memory_info(const proc_processing_context* ctx);
 static void data_block_calculate(proc_processing_context* ctx);
 static void print_module_info(const proc_processing_context* ctx, const wchar_t* module_name);
+static bool init_symbols(proc_processing_context* ctx);
+static void symbol_find(proc_processing_context* ctx);
 
 static void find_pattern(search_context_proc* search_ctx) {
     HANDLE process = search_ctx->process;
@@ -300,11 +302,19 @@ static void print_search_results(search_context_proc& search_ctx) {
     puts("");
 }
 
-static void search_pattern_in_memory(proc_processing_context* ctx) {
-    assert(ctx->common.pdata.pattern != nullptr);
-    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
+static bool try_open_process(DWORD pid, HANDLE& process) {
+    process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, pid);
     if (process == NULL) {
         fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+        return false;
+    }
+   return true;
+}
+
+static void search_pattern_in_memory(proc_processing_context* ctx) {
+    assert(ctx->common.pdata.pattern != nullptr);
+    HANDLE process;
+    if (!try_open_process(ctx->pid, process)) {
         return;
     }
 
@@ -337,9 +347,8 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
     uint8_t* buffer = nullptr;
     size_t bytes_to_read = 0;
 
-    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
-    if (process == NULL) {
-        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+    HANDLE process;
+    if (!try_open_process(ctx->pid, process)) {
         return;
     }
 
@@ -452,6 +461,11 @@ static void print_help_calculate() {
     puts("------------------------------------\n");
 }
 
+static void print_help_symbols() {
+    print_help_symbols_common();
+    puts("------------------------------------\n");
+}
+
 static void print_help_traverse_heap() {
     puts("\n------------------------------------");
     puts("th\t\t\t - travers process heaps (slow)");
@@ -553,6 +567,9 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
     case c_help_calculate:
         print_help_calculate();
         break;
+    case c_help_symbols:
+        print_help_symbols();
+        break;
     case c_help_traverse_heap:
         print_help_traverse_heap();
         break;
@@ -638,6 +655,13 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_symbol_detect:
+        try_redirect_output_to_file(&ctx->common);
+        symbol_find(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+        break;
     case c_travers_heap:
         try_redirect_output_to_file(&ctx->common);
         traverse_heap_list(ctx->pid, false, false, output_redirected(&ctx->common));
@@ -698,6 +722,8 @@ int run_process_inspection() {
         }
         execute_command(cmd, &ctx);
     }
+
+    deinit_symbols(&ctx.common);
 
     return 0;
 }
@@ -857,9 +883,8 @@ static bool gather_thread_info(DWORD dw_owner_pid, std::vector<thread_info_proc>
         return (FALSE);
     }
 
-    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, dw_owner_pid);
-    if (process == NULL) {
-        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+    HANDLE process;
+    if (!try_open_process(dw_owner_pid, process)) {
         CloseHandle(hThreadSnap);
         return (FALSE);
     }
@@ -927,8 +952,7 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
     if (Heap32ListFirst(hHeapSnap, &hl)) {
         HANDLE process = 0;
         if (calculate_entropy) {
-            process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, dw_pid);
-            if (process == NULL) {
+            if (!try_open_process(dw_pid, process)) {
                 fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
                 puts("Entropy won't be computed!");
                 calculate_entropy = 0;
@@ -1027,9 +1051,8 @@ static int traverse_heap_list(DWORD dw_pid, bool list_blocks, bool calculate_ent
 }
 
 static void list_memory_regions_info(const proc_processing_context* ctx, bool show_commited) {
-    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
-    if (process == NULL) {
-        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+    HANDLE process;
+    if (!try_open_process(ctx->pid, process)) {
         return;
     }
 
@@ -1123,12 +1146,10 @@ void print_process_memory_info(HANDLE process_handle) {
     puts("");
 }
 
-static bool print_memory_usage(proc_processing_context* ctx) {
-    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
-    if (process == NULL) {
-        ctx->pid = INVALID_ID;
-        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
-        return false;
+static void print_memory_usage(const proc_processing_context* ctx) {
+    HANDLE process;
+    if (!try_open_process(ctx->pid, process)) {
+        return;
     }
 
     char proc_name[MAX_PATH];
@@ -1153,11 +1174,22 @@ static bool print_memory_usage(proc_processing_context* ctx) {
     puts("");
 
     CloseHandle(process);
-    return true;
+    return;
 }
 
 static bool test_selected_pid(proc_processing_context* ctx) {
-    return print_memory_usage(ctx);
+    HANDLE process;
+    if (!try_open_process(ctx->pid, process)) {
+        ctx->pid = INVALID_ID;
+        return false;
+    }
+
+    print_memory_usage(ctx);
+
+    deinit_symbols(&ctx->common);
+    init_symbols(ctx);
+
+    return true;
 }
 
 static DWORD is_on_stack(const proc_processing_context* ctx, const MEMORY_BASIC_INFORMATION* r_info) {
@@ -1187,9 +1219,8 @@ static void print_region_flags(const WIN32_MEMORY_REGION_INFORMATION* flags) {
 }
 
 static void print_memory_info(const proc_processing_context* ctx) {
-    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
-    if (process == NULL) {
-        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+    HANDLE process;
+    if (!try_open_process(ctx->pid, process)) {
         return;
     }
 
@@ -1233,9 +1264,8 @@ static void data_block_calculate(proc_processing_context* ctx) {
     uint8_t* buffer = nullptr;
     size_t bytes_to_read = 0;
 
-    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
-    if (process == NULL) {
-        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+    HANDLE process;
+    if (!try_open_process(ctx->pid, process)) {
         return;
     }
 
@@ -1288,9 +1318,8 @@ static void data_block_calculate(proc_processing_context* ctx) {
 }
 
 void print_module_info(const proc_processing_context* ctx, const wchar_t *module_name) {
-    HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, ctx->pid);
-    if (process == NULL) {
-        fprintf(stderr, "Failed opening the process. Error code: %lu\n", GetLastError());
+    HANDLE process;
+    if (!try_open_process(ctx->pid, process)) {
         return;
     }
     HMODULE *modules = NULL;
@@ -1362,4 +1391,29 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
     free(modules);
 
     CloseHandle(process);
+}
+
+static bool init_symbols(proc_processing_context* ctx) {
+    if (!ctx->common.sym_ctx.initialized) {
+        HANDLE process;
+        if (!try_open_process(ctx->pid, process)) {
+            return false;
+        }
+        if (!SymInitialize(process, NULL, TRUE)) {
+            fprintf(stderr, "Failed to initialise symbol handler. Error: %lu\n", GetLastError());
+            return false;
+        }
+        ctx->common.sym_ctx.process = process;
+        ctx->common.sym_ctx.initialized = true;
+        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    }
+    return true;
+}
+
+static void symbol_find(proc_processing_context* ctx) {
+    if (!init_symbols(ctx)) {
+        return;
+    }
+
+    symbol_find_common(&ctx->common);
 }

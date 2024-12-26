@@ -1,7 +1,6 @@
 #include "common.h"
 
 #include <nmmintrin.h>
-#include <dbghelp.h>
 
 #pragma comment(lib, "dbghelp.lib")
 
@@ -374,8 +373,9 @@ void print_help_main_common() {
     puts(">?\t\t\t - display redirection commands");
     puts("%?\t\t\t - display calculation commands");
     puts("clear\t\t\t - clear screen");
-    puts("l?\t\t\t - display list commands");
     puts("i?\t\t\t - display inspection commands");
+    puts("l?\t\t\t - display list commands");
+    puts("s?\t\t\t - display symbols commands");
     puts("x?\t\t\t - display hexdump commands");
     puts("q | exit\t\t - quit program");
 }
@@ -431,6 +431,11 @@ void print_help_calculate_common() {
     puts("*  Block's size is clamped to the memory region size");
 }
 
+void print_help_symbols_common() {
+    puts("\n------------------------------------");
+    puts("s@<address>\t\t - detect symbol at <address>");
+}
+
 inline search_scope_type set_scope(char ch) {
     search_scope_type scope_type;
     switch (ch) {
@@ -447,6 +452,11 @@ inline search_scope_type set_scope(char ch) {
         scope_type = mrt_none;
     }
     return scope_type;
+}
+
+static bool get_ptr(const char* cmd, void** p) {
+    int res = sscanf_s(cmd, " @ %p", p);
+    return res == 1;
 }
 
 static bool get_ptr_and_size(const char* cmd, void** p, int64_t* size) {
@@ -772,8 +782,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         switch (cmd[1]) {
         case 'm': {
             void* p = nullptr;
-            int res = sscanf_s(cmd + 2, " @ %p", &p);
-            if (res < 1) {
+            if (!get_ptr(cmd + 2, &p)) {
                 return c_not_set;
             }
             ctx->i_data.memory_address = (const char*)p;
@@ -875,7 +884,8 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         } else {
             command = c_not_set;
         }
-    } else if (cmd[0] == '%') {
+    }
+    else if (cmd[0] == '%') {
         if (cmd[1] == '?') {
             return c_help_calculate;
         }
@@ -890,10 +900,12 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         if (0 == memcmp(args, entropy, entropy_sz)) {
             args += entropy_sz;
             op = calculate_op::co_entropy;
-        }  else if (0 == memcmp(args, crc32c, crc32c_sz)) {
+        }
+        else if (0 == memcmp(args, crc32c, crc32c_sz)) {
             args += crc32c_sz;
             op = calculate_op::co_crc32c;
-        } else {
+        }
+        else {
             fprintf(stderr, unknown_command);
             return c_continue;
         }
@@ -913,6 +925,17 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         ctx->cdata.size = size;
         ctx->cdata.op = op;
         command = c_calculate;
+    } else if (cmd[0] == 's') {
+        if (cmd[1] == '?') {
+            return c_help_symbols;
+        }
+        void* p = nullptr;
+        if (!get_ptr(cmd + 1, &p)) {
+            return c_continue;
+        }
+
+        ctx->sym_ctx.search_data.address = (DWORD64)p;
+        command = c_symbol_detect;
     } else {
         command = c_not_set;
     }
@@ -1182,4 +1205,33 @@ void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t s
         printf("Block Start: 0x%p, Size: 0x%llx, CRC32C: 0x%08x\n", cdata->address, size, crc);
     }
     puts("");
+}
+
+void deinit_symbols(common_processing_context* ctx) {
+    if (ctx->sym_ctx.initialized) {
+        if (!SymCleanup(ctx->sym_ctx.process)) {
+            fprintf(stderr, "Failed to clean up symbol handler. Error: %lu\n", GetLastError());
+        }
+        CloseHandle(ctx->sym_ctx.process);
+    }
+    ctx->sym_ctx.initialized = false;
+}
+
+void symbol_find_common(const common_processing_context* ctx) {
+        const DWORD64 address = ctx->sym_ctx.search_data.address;
+    char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+    PSYMBOL_INFO symbol_info = (PSYMBOL_INFO)symbol_buffer;
+
+    symbol_info->SizeOfStruct = sizeof(SYMBOL_INFO);
+    symbol_info->MaxNameLen = MAX_SYM_NAME;
+
+    DWORD64 displacement = 0;
+
+    if (SymFromAddr(ctx->sym_ctx.process, address, &displacement, symbol_info)) {
+        printf("Address: 0x%016llx\n", address);
+        printf("Symbol: %s\n", symbol_info->Name);
+        //printf("Displacement: 0x%llx\n", displacement);
+    } else {
+        fprintf(stderr, "Failed to resolve symbol for address 0x%016llx. Error: %lu\n", address, GetLastError());
+    }
 }
