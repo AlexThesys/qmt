@@ -47,8 +47,8 @@
 `lt`	- list process threads  
 `lmi`	- list memory regions info  
 `lmic`	- list committed memory regions info<br/>
-`s@<address>` - resolve symbol at <address><br/>
-`sn <name>` - resolve symbol by <name><br/>
+`s@<address>` - resolve symbol at address<br/>
+`sn <name>` - resolve symbol by name<br/>
 `sf` 	- show next symbol<br/>
 `sb` 	- show previous symbol<br/>
 `sp<path0;path1;..>` - set symbol search paths (separated by ';')<br/>
