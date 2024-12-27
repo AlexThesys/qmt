@@ -194,6 +194,7 @@ struct symbol_context {
     char paths[SYMBOL_PATHS_SIZE];
     bool ctx_initialized = false;
     bool sym_initialized = false;
+    bool append_path = false;
 };
 
 struct common_processing_context {

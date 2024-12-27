@@ -12,6 +12,7 @@ const char* page_protect[] = { "PAGE_EXECUTE", "PAGE_EXECUTE_READ", "PAGE_EXECUT
 const char* unknown_command = "Unknown command.\n";
 const char* command_not_implemented = "Command not implemented.\n";
 static const char* error_parsing_the_input = "Error parsing the input.\n";
+static const char* max_path_len_error = "Path exceeds the maximum of %lu characters.\n";
 static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings", "-t=", "--threads=", "-v", "--version",
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list", 
                                 "-s", "--disable-symbols"};
@@ -446,7 +447,8 @@ void print_help_symbols_common() {
     puts("sn <name>\t\t - resolve symbol by <name>");
     puts("sf\t\t\t - show next symbol");
     puts("sb\t\t\t - show previous symbol");
-    puts("sp<path0;path1;..>\t - set symbol search paths (separated by ';')");
+    puts("sp <path0;path1;..>\t - set symbol search paths (separated by ';'), override existing path");
+    puts("spa <path0;path1;..>\t - set symbol search paths (separated by ';'), append to existing path");
     puts("sp\t\t\t - get symbol search paths");
 }
 
@@ -952,13 +954,20 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             if (cmd[2] == 0) {
                 command = c_symbol_get_path;
             } else {
+                const bool append = cmd[2] == 'a';
                 const size_t cmd_len = strlen(cmd);
                 const char* paths = skip_to_args(cmd, cmd_len);
                 if (cmd_len <= ptrdiff_t(paths - cmd)) {
                     fprintf(stderr, error_parsing_the_input);
                     return c_continue;
                 }
-                strcpy_s(ctx->sym_ctx.paths, sizeof(ctx->sym_ctx.paths), paths);
+                constexpr size_t max_path_len = sizeof(ctx->sym_ctx.paths);
+                const size_t new_path_len = strlen(paths);
+                if (new_path_len > max_path_len) {
+                    fprintf(stderr, max_path_len_error, max_path_len);
+                }
+                strcpy_s(ctx->sym_ctx.paths, max_path_len, paths);
+                ctx->sym_ctx.append_path = append;
                 command = c_symbol_set_path;
             }
         } else if (cmd[1] == '@' || cmd[1] == ' ') {
@@ -1428,7 +1437,28 @@ bool symbol_set_path_common(const common_processing_context* ctx) {
         return false;
     }
 
-    if (!SymSetSearchPath(ctx->sym_ctx.process, ctx->sym_ctx.paths)) {
+    const char* new_path = ctx->sym_ctx.paths;
+    char search_path[SYMBOL_PATHS_SIZE];
+    if (ctx->sym_ctx.append_path) {
+        memset(search_path, 0, sizeof(search_path));
+        if (!SymGetSearchPath(ctx->sym_ctx.process, search_path, sizeof(search_path))) {
+            fprintf(stderr, "Failed to get the symbol search path.\n");
+            return false;
+        }
+        size_t path_len = strlen(search_path);
+        size_t new_path_len = strlen(new_path);
+        if ((new_path_len + path_len + 1) >= SYMBOL_PATHS_SIZE) {
+            fprintf(stderr, max_path_len_error, SYMBOL_PATHS_SIZE);
+            if (path_len + 1 >= SYMBOL_PATHS_SIZE) {
+                return false;
+            }
+        }
+        search_path[path_len++] = ';';
+        strcpy_s(search_path + path_len, SYMBOL_PATHS_SIZE - path_len, new_path);
+        new_path = search_path;
+    }
+
+    if (!SymSetSearchPath(ctx->sym_ctx.process, new_path)) {
         fprintf(stderr, "Failed to set the symbol search path.\n");
     }
     return true;

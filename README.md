@@ -51,7 +51,8 @@
 `sn <name>` - resolve symbol by name<br/>
 `sf` 	- show next symbol<br/>
 `sb` 	- show previous symbol<br/>
-`sp<path0;path1;..>` - set symbol search paths (separated by ';')<br/>
+`sp <path0;path1;..>` - set symbol search paths (separated by ';'), override existing path<br/>
+`spa <path0;path1;..>` - set symbol search paths (separated by ';'), append to existing path<br/>
 `sp`    - get symbol search paths<br/>  
   *  Memory listing commands have optional `:i`|`:s`|`:o` modifiers to display only image || stack || other<br/>
 
