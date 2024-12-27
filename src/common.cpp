@@ -1264,9 +1264,66 @@ void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t s
     puts("");
 }
 
+#include <stdio.h>
+#include <windows.h> // Include for SYMBOL_INFO and related definitions
+
+static void print_symbol_info_flags(const SYMBOL_INFO* symbol_info) {
+    if (symbol_info == NULL) {
+        printf("Invalid SYMBOL_INFO pointer.\n");
+        return;
+    }
+
+    printf("Flags: 0x%08X\n", symbol_info->Flags);
+
+    if (symbol_info->Flags & SYMFLAG_VALUEPRESENT) {
+        printf("  - Value is present\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_REGISTER) {
+        printf("  - Symbol is a register\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_REGREL) {
+        printf("  - Symbol is register-relative\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_FRAMEREL) {
+        printf("  - Symbol is frame-relative\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_PARAMETER) {
+        printf("  - Symbol is a parameter\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_LOCAL) {
+        printf("  - Symbol is a local variable\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_CONSTANT) {
+        printf("  - Symbol is a constant\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_EXPORT) {
+        printf("  - Symbol is an exported function\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_FORWARDER) {
+        printf("  - Symbol is a forwarder\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_FUNCTION) {
+        printf("  - Symbol is a function\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_VIRTUAL) {
+        printf("  - Symbol is virtual\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_THUNK) {
+        printf("  - Symbol is a thunk\n");
+    }
+    if (symbol_info->Flags & SYMFLAG_TLSREL) {
+        printf("  - Symbol is TLS-relative\n");
+    }
+    // ...
+}
+
+
 static void print_symbol_info(const SYMBOL_INFO* symbol_info) {
     printf("Symbol: %s\n", symbol_info->Name);
+    printf("Size: 0x%llx\n", symbol_info->Size);
+    printf("ModBase: 0x%016llx\n", symbol_info->ModBase);
     printf("Address: 0x%016llx\n", symbol_info->Address);
+    print_symbol_info_flags(symbol_info);
     // ...
 }
 
@@ -1287,6 +1344,11 @@ void symbol_find_at_address(common_processing_context* ctx) {
     if (SymFromAddr(ctx->sym_ctx.process, address, &displacement, symbol_info)) {
         printf("Address: 0x%016llx\n", address);
         print_symbol_info(symbol_info);
+
+        //if (SymGetTypeInfo(ctx->sym_ctx.process, symbol_info->TypeIndex, /*IMAGEHLP_SYMBOL_TYPE_INFO*/, /*PVOID*/)) {
+        //
+        //}
+
         ctx->sym_ctx.sym_initialized = true;
     } else {
         printf("Failed to resolve symbol for address 0x%016llx.\n", address);
