@@ -396,7 +396,6 @@ void print_help_search_common() {
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
-    puts("//\t\t\t - repeat last search");
 }
 
 void print_help_redirect_common() {
@@ -610,9 +609,6 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
     } else if (cmd[0] == '/') {
         if (cmd[1] == '?') {
             return c_help_search;
-        }
-        if (cmd[1] == '/') {
-            return c_search_pattern;
         }
         const int64_t arg_len = strlen(cmd);
         char* args = skip_to_args(cmd, arg_len);
