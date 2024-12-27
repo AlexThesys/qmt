@@ -445,9 +445,9 @@ void print_help_symbols_common() {
     puts("\n------------------------------------");
     puts("s@<address>\t\t - resolve symbol at <address>");
     puts("sn <name>\t\t - resolve symbol by <name>");
-    puts("sf \t\t - show next symbol");
-    puts("sb \t\t - show previous symbol");
-    puts("sp<path0;path1;..>\t\t - set symbol search paths (separated by ';')");
+    puts("sf\t\t\t - show next symbol");
+    puts("sb\t\t\t - show previous symbol");
+    puts("sp<path0;path1;..>\t - set symbol search paths (separated by ';')");
     puts("sp\t\t\t - get symbol search paths");
 }
 
