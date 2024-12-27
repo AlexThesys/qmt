@@ -90,6 +90,7 @@ enum input_command {
     c_list_memory_regions_info,
     c_list_memory_regions_info_committed,
     c_list_handles,
+    c_list_symbols,
 
     c_inspect_memory,
     c_inspect_module,

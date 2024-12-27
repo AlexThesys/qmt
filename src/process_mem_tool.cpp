@@ -50,6 +50,7 @@ static void print_module_info(const proc_processing_context* ctx, const wchar_t*
 static bool init_symbols(proc_processing_context* ctx);
 static void deinit_symbols(common_processing_context* ctx);
 static void symbol_set_path(const common_processing_context* ctx);
+static void list_symbols(const common_processing_context* ctx);
 
 static bool is_process_handle_valid(HANDLE process) {
     DWORD exit_code;
@@ -463,6 +464,7 @@ static void print_help_list() {
     print_help_list_common();
     puts("------------------------------------");
     puts("lp\t\t\t - list system PIDs");
+    puts("ls\t\t\t - list symbols");
     puts("------------------------------------\n");
 }
 
@@ -524,6 +526,8 @@ static input_command parse_command(proc_processing_context *ctx, search_data_inf
     } else if (cmd[0] == 'l') {
         if (cmd[1] == 'p' && cmd[2] == 0) {
             command = c_list_pids;
+        } else if (cmd[1] == 's' && cmd[2] == 0) {
+            command = c_list_symbols;
         } else {
             fprintf(stderr, unknown_command);
             command = c_continue;
@@ -636,6 +640,12 @@ static void execute_command(input_command cmd, proc_processing_context *ctx) {
     case c_list_memory_regions_info_committed:
         try_redirect_output_to_file(&ctx->common);
         list_memory_regions_info(ctx, true);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_list_symbols:
+        try_redirect_output_to_file(&ctx->common);
+        list_symbols(&ctx->common);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -1511,5 +1521,59 @@ static void symbol_set_path(const common_processing_context* ctx) {
 
     if (!SymRefreshModuleList(ctx->sym_ctx.process)) {
         fprintf(stderr, "Failed to refresh the module list.\n");
+    }
+}
+
+struct sym_enum_context {
+    HANDLE process;
+    uint32_t num_entries;
+    bool redirected;
+    bool stop_enumeration;
+    bool check_num_results;
+};
+
+static BOOL CALLBACK enum_symbols_callback(PSYMBOL_INFO sym_info, ULONG symbol_size, PVOID user_context) {
+    sym_enum_context* e_ctx = (sym_enum_context*)user_context;
+
+    if (e_ctx->check_num_results && (++e_ctx->num_entries > TOO_MANY_RESULTS)) {
+        if (too_many_results(e_ctx->num_entries, e_ctx->redirected, true)) {
+            e_ctx->stop_enumeration = true;
+            return FALSE;
+        }
+        e_ctx->check_num_results = false;
+    }
+
+    printf("Symbol: %s, Address: 0x%016llx, Size: 0x%lx\n", sym_info->Name, sym_info->Address, symbol_size);
+
+    return TRUE;
+}
+
+static BOOL CALLBACK enum_modules_callback(PCSTR module_name, DWORD64 base_of_dll, ULONG module_size, PVOID user_context) {
+    sym_enum_context* e_ctx = (sym_enum_context*)user_context;
+
+    puts("----------------");
+    printf("Module: %s, Base Address: 0x%016llx, Size: 0x%lx\n", module_name, base_of_dll, module_size);
+    if (!SymEnumSymbols(e_ctx->process, base_of_dll, NULL, enum_symbols_callback, user_context)) {
+        fprintf(stderr, "Failed to enumerate symbols for module: %s, Error: %lu\n", module_name, GetLastError());
+    }
+    puts("");
+
+    if (e_ctx->stop_enumeration) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+static void list_symbols(const common_processing_context* ctx) {
+    if (!ctx->sym_ctx.ctx_initialized) {
+        fprintf(stderr, "Symbols haven't been initialized.\n");
+        return;
+    }
+
+    sym_enum_context e_ctx = { ctx->sym_ctx.process, 0, output_redirected(ctx), false, true };
+
+    if (!EnumerateLoadedModules64(ctx->sym_ctx.process, enum_modules_callback, (PVOID)&e_ctx)) {
+        fprintf(stderr, "Failed to enumerate modules, Error: %lu\n", GetLastError());
     }
 }

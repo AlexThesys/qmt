@@ -59,7 +59,8 @@
 ## ==== Process Mode Commands ====  
 
 `p <pid>`	- select PID  
-`lp`	- list system PIDs  
+`lp`	- list system PIDs<br/>
+`ls`	- list symbols<br/>
 `imu`	- show memory usage  
 `th`	- traverse process heaps (slow)  
 `the`	- traverse process heaps, calculate entropy (slower)  
