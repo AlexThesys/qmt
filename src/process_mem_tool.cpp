@@ -1245,8 +1245,10 @@ static bool test_selected_pid(proc_processing_context* ctx) {
 
     print_memory_usage(ctx);
 
-    deinit_symbols(&ctx->common);
-    init_symbols(ctx);
+    if (!g_disable_symbols) {
+        deinit_symbols(&ctx->common);
+        init_symbols(ctx);
+    }
 
     return true;
 }
