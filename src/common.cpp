@@ -16,7 +16,7 @@ static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings"
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list", 
                                 "-s", "--disable-symbols"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.3.7";
+static const char* program_version = "Version 0.3.8";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = INVALID_THREAD_NUM;
@@ -1260,17 +1260,6 @@ void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t s
     puts("");
 }
 
-void deinit_symbols(common_processing_context* ctx) {
-    if (ctx->sym_ctx.ctx_initialized) {
-        if (!SymCleanup(ctx->sym_ctx.process)) {
-            fprintf(stderr, "Failed to clean up symbol handler. Error: %lu\n", GetLastError());
-        }
-        CloseHandle(ctx->sym_ctx.process);
-    }
-    ctx->sym_ctx.ctx_initialized = false;
-    ctx->sym_ctx.sym_initialized = false;
-}
-
 static void print_symbol_info(const SYMBOL_INFO* symbol_info) {
     printf("Symbol: %s\n", symbol_info->Name);
     printf("Address: 0x%016llx\n", symbol_info->Address);
@@ -1371,16 +1360,14 @@ void symbol_get_path(const common_processing_context* ctx) {
     printf("Symbol search path: %s\n", search_path);
 }
 
-void symbol_set_path(const common_processing_context* ctx) {
+bool symbol_set_path_common(const common_processing_context* ctx) {
     if (!ctx->sym_ctx.ctx_initialized) {
         fprintf(stderr, "Symbols haven't been initialized.\n");
-        return;
+        return false;
     }
 
     if (!SymSetSearchPath(ctx->sym_ctx.process, ctx->sym_ctx.paths)) {
         fprintf(stderr, "Failed to set the symbol search path.\n");
     }
-    if (!SymRefreshModuleList(ctx->sym_ctx.process)) {
-        fprintf(stderr, "Failed to refresh the module list.\n");
-    }
+    return true;
 }

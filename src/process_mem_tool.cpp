@@ -48,6 +48,8 @@ static void print_memory_info(const proc_processing_context* ctx);
 static void data_block_calculate(proc_processing_context* ctx);
 static void print_module_info(const proc_processing_context* ctx, const wchar_t* module_name);
 static bool init_symbols(proc_processing_context* ctx);
+static void deinit_symbols(common_processing_context* ctx);
+static void symbol_set_path(const common_processing_context* ctx);
 
 static bool is_process_handle_valid(HANDLE process) {
     DWORD exit_code;
@@ -766,7 +768,9 @@ int run_process_inspection() {
         execute_command(cmd, &ctx);
     }
 
-    deinit_symbols(&ctx.common);
+    if (!g_disable_symbols) {
+        deinit_symbols(&ctx.common);
+    }
     if (ctx.process_initialized && is_process_handle_valid(ctx.process)) {
         if (!CloseHandle(ctx.process)) {
             fprintf(stderr, "Failed closing the handle for PID: 0x%%x\n", ctx.pid);
@@ -1473,14 +1477,7 @@ static bool init_symbols(proc_processing_context* ctx) {
             char* module_path = search_path + path_len;
             if (GetModuleFileNameExA(ctx->process, NULL, module_path, SYMBOL_PATHS_SIZE - path_len)) {
                 size_t module_len = strlen(module_path);
-                while (module_len--) {
-                    if (module_path[module_len] == '\\' || module_path[module_len] == '/') {
-                        break;
-                    }
-                    else {
-                        module_path[module_len] = 0;
-                    }
-                }
+                strip_file_name(module_path, module_len);
                 if (!SymSetSearchPath(ctx->process, search_path)) {
                     fprintf(stderr, "Failed to set the symbol search path.\n");
                 }
@@ -1494,4 +1491,25 @@ static bool init_symbols(proc_processing_context* ctx) {
         ctx->common.sym_ctx.ctx_initialized = true;
     }
     return true;
+}
+
+static void deinit_symbols(common_processing_context* ctx) {
+    if (ctx->sym_ctx.ctx_initialized) {
+        if (!SymCleanup(ctx->sym_ctx.process)) {
+            fprintf(stderr, "Failed to clean up symbol handler. Error: %lu\n", GetLastError());
+        }
+        CloseHandle(ctx->sym_ctx.process);
+    }
+    ctx->sym_ctx.ctx_initialized = false;
+    ctx->sym_ctx.sym_initialized = false;
+}
+
+static void symbol_set_path(const common_processing_context* ctx) {
+    if (!symbol_set_path_common(ctx)) {
+        return;
+    }
+
+    if (!SymRefreshModuleList(ctx->sym_ctx.process)) {
+        fprintf(stderr, "Failed to refresh the module list.\n");
+    }
 }

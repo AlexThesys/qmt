@@ -1,5 +1,5 @@
 # Quick Memory Tools  
-**Version 0.3.7**  
+**Version 0.3.8**  
 
 ## ==== Command Line Options ====  
 
@@ -15,6 +15,7 @@
 `-v` || `--version`	-- show version<br/>
 `-n` || `--no-page-caching`	-- force disable page caching (dump mode only)<br/>
 `-c` || `--clear-standby-list`	-- clear standby physical pages (dump mode only)<br/>
+`-s || --disable-symbols` -- disable symbol resolution<br/>
 
 ## ==== Common Commands ====  
 
@@ -45,7 +46,13 @@
 `lM`	- list process modules  
 `lt`	- list process threads  
 `lmi`	- list memory regions info  
-`lmic`	- list committed memory regions info  
+`lmic`	- list committed memory regions info<br/>
+`s@<address>` - resolve symbol at <address><br/>
+`sn <name>` - resolve symbol by <name><br/>
+`sf` 	- show next symbol<br/>
+`sb` 	- show previous symbol<br/>
+`sp<path0;path1;..>` - set symbol search paths (separated by ';')<br/>
+`sp`    - get symbol search paths<br/>  
   *  Memory listing commands have optional `:i`|`:s`|`:o` modifiers to display only image || stack || other<br/>
 
 ## ==== Process Mode Commands ====  

@@ -28,8 +28,9 @@ struct cache_memory_regions_ctx {
 
 struct dump_processing_context {
     common_processing_context common;
-    HANDLE file_base;
+    HANDLE file_handle;
     HANDLE file_mapping;
+    HANDLE file_base;
     std::vector<module_data> m_data;
     std::vector<thread_info_dump> t_data;
     cpu_info_data cpu_info;
@@ -76,6 +77,9 @@ static void print_memory_info(const dump_processing_context* ctx);
 static void print_module_info(const dump_processing_context* ctx);
 static void print_thread_info(const dump_processing_context* ctx);
 static void list_handle_descriptors(const dump_processing_context* ctx);
+static bool init_symbols(dump_processing_context* ctx);
+static void deinit_symbols(common_processing_context* ctx);
+static void symbol_set_path(const dump_processing_context* ctx);
 static bool is_drive_ssd(const char* file_path);
 static void cache_memory_regions(dump_processing_context* ctx);
 static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx);
@@ -831,6 +835,38 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_symbol_resolve_at_address:
+        try_redirect_output_to_file(&ctx->common);
+        symbol_find_at_address(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_symbol_resolve_by_name:
+        try_redirect_output_to_file(&ctx->common);
+        symbol_find_by_name(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_symbol_resolve_fwd:
+        try_redirect_output_to_file(&ctx->common);
+        symbol_find_next(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_symbol_resolve_bwd:
+        try_redirect_output_to_file(&ctx->common);
+        symbol_find_prev(&ctx->common);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_symbol_get_path:
+        symbol_get_path(&ctx->common);
+        puts("====================================\n");
+        break;
+    case c_symbol_set_path:
+        symbol_set_path(ctx);
+        puts("====================================\n");
+        break;
     case c_list_modules:
         try_redirect_output_to_file(&ctx->common);
         list_modules(ctx);
@@ -872,7 +908,7 @@ int run_dump_inspection() {
         return -1;
     }
 
-    dump_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, file_base, file_mapping_handle };
+    dump_processing_context ctx = { { pattern_data{ nullptr, 0, search_scope_type::mrt_all } }, file_handle, file_mapping_handle, file_base };
     get_system_info(&ctx);
     if (ctx.cpu_info.processor_architecture != PROCESSOR_ARCHITECTURE_AMD64) {
         fprintf(stderr, "\nOnly x86-64 architecture supported at the moment. Exiting..\n");
@@ -917,12 +953,16 @@ int run_dump_inspection() {
     if (g_max_threads == INVALID_THREAD_NUM) { // no -t || --threads cmd arg has been passed
         g_max_threads = IDEAL_THREAD_NUM_DUMP;
     }
-  
+
     puts("");
     print_help_main();
 
     gather_modules(&ctx);
     gather_threads(&ctx);
+
+    if (!g_disable_symbols) {
+        init_symbols(&ctx);
+    }
 
     char pattern[MAX_PATTERN_LEN];
     char command[MAX_COMMAND_LEN + MAX_ARG_LEN];
@@ -948,6 +988,9 @@ int run_dump_inspection() {
     stop_memory_regions_caching(&ctx.pages_caching_state, page_caching_thread);
 
     // epilogue
+    if (!g_disable_symbols) {
+        deinit_symbols(&ctx.common);
+    }
     UnmapViewOfFile(file_base);
     CloseHandle(file_mapping_handle);
     CloseHandle(file_handle);
@@ -1360,6 +1403,71 @@ static void data_block_calculate(dump_processing_context* ctx) {
     }
 
     data_block_calculate_common(&ctx->common.cdata, bytes.data(), bytes.size());
+}
+
+static bool init_symbols(dump_processing_context* ctx) {
+    if (!ctx->common.sym_ctx.ctx_initialized) {
+        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+
+        if (!SymInitialize(ctx->file_handle, NULL, FALSE)) {
+            fprintf(stderr, "Failed to initialise symbol handler. Error: %lu\n", GetLastError());
+            return false;
+        }
+        
+        ctx->common.sym_ctx.process = ctx->file_handle;
+        ctx->common.sym_ctx.ctx_initialized = true;
+    }
+    return true;
+}
+
+static void deinit_symbols(common_processing_context* ctx) {
+    if (ctx->sym_ctx.ctx_initialized) {
+        if (!SymCleanup(ctx->sym_ctx.process)) {
+            fprintf(stderr, "Failed to clean up symbol handler. Error: %lu\n", GetLastError());
+        }
+    }
+    ctx->sym_ctx.ctx_initialized = false;
+    ctx->sym_ctx.sym_initialized = false;
+}
+
+void reload_modules(const dump_processing_context* ctx) {
+    const auto& mdata = ctx->m_data;
+    printf("Loading symbols for %lu modules...\n", mdata.size());
+    char module_path[MAX_PATH];
+    for (const auto& m : mdata) {
+        if (m.name != nullptr) {
+            SymUnloadModule(ctx->file_handle, (DWORD64)m.base_of_image);
+            memset(module_path, 0, sizeof(module_path));
+            WideCharToMultiByte(CP_ACP, 0, m.name, -1, module_path, sizeof(module_path), NULL, NULL);
+            if (module_path == 0) {
+                fprintf(stderr, "Failed to extract module name for module at base 0x%llx\n", m.base_of_image);
+                continue;
+            }
+            size_t module_len = strlen(module_path);
+            while (module_len--) {
+                if (module_path[module_len] == '\\' || module_path[module_len] == '/') {
+                    module_len++;
+                    break;
+                }
+            }
+            const char* module_name = module_path + module_len;
+            DWORD64 base_of_dll = (DWORD64)m.base_of_image;
+            DWORD64 size_of_dll = m.size_of_image;
+            if (SymLoadModuleEx(ctx->file_handle, NULL, module_name, module_name, base_of_dll, size_of_dll, NULL, 0)) {
+                printf("Loaded symbols for module: %s (Base: 0x%016llx)\n", module_name, base_of_dll);
+            } else {
+                fprintf(stderr, "Failed to load symbols for module: %s. Error: %lu\n", module_name, GetLastError());
+            }
+        }
+    }
+}
+
+void symbol_set_path(const dump_processing_context* ctx) {
+    if (!symbol_set_path_common(&ctx->common)) {
+        return;
+    }
+
+    reload_modules(ctx);
 }
 
 static bool is_drive_ssd(const char* file_path) {

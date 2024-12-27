@@ -269,13 +269,12 @@ void print_image_info(const common_processing_context* ctx);
 uint32_t compute_crc32c(const uint8_t* data, size_t length);
 
 void data_block_calculate_common(calculate_data* cdata, uint8_t* bytes, size_t size);
-void deinit_symbols(common_processing_context* ctx);
 void symbol_find_at_address(common_processing_context* ctx);
 void symbol_find_by_name(common_processing_context* ctx);
 void symbol_find_next(common_processing_context* ctx);
 void symbol_find_prev(common_processing_context* ctx);
 void symbol_get_path(const common_processing_context* ctx);
-void symbol_set_path(const common_processing_context* ctx);
+bool symbol_set_path_common(const common_processing_context* ctx);
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))
@@ -361,4 +360,14 @@ inline double entropy_compute(entropy_context* ctx, size_t size) {
     }
 
     return entropy;
+}
+
+inline void strip_file_name(char* buf, size_t len) {
+    while (len--) {
+        if (buf[len] == '\\' || buf[len] == '/') {
+            break;
+        } else {
+            buf[len] = 0;
+        }
+    }
 }
