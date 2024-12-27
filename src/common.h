@@ -187,7 +187,7 @@ struct calculate_data {
 };
 
 struct symbol_context {
-    char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+    char symbol_buffer[sizeof(SYMBOL_INFO) + (MAX_SYM_NAME - 1) * sizeof(TCHAR)];
     PSYMBOL_INFO symbol_info = (PSYMBOL_INFO)symbol_buffer;
     HANDLE process;
     char paths[SYMBOL_PATHS_SIZE];
