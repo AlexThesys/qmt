@@ -1450,7 +1450,7 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
                     //wprintf(L"Base Address: %p\n", module_info.lpBaseOfDll);
                     //wprintf(L"Size of Module: %lu bytes\n", (unsigned long)module_info.SizeOfImage);
                     //wprintf(L"Entry Point: %p\n", module_info.EntryPoint);
-                    _tprintf(TEXT("\n     Entry point    = %p\n"), module_info.EntryPoint);
+                    _tprintf(TEXT("\n     Entry point    = 0x%p\n"), module_info.EntryPoint);
                 } else {
                     if (g_show_failed_readings) {
                         fwprintf(stderr, L"Failed to get module information for: %s\n", module_name);

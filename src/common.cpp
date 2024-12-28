@@ -392,11 +392,11 @@ void print_help_main_common() {
 
 void print_help_search_common() {
     puts("\n------------------------------------");
-    puts("*  All search commands have optional :i|:s|:o modifiers to limit the search to image || stack || other");
-    puts("** Alternatively search could be ranged (e.g. /x@<start-address>:<length> <pattern> )");
     puts("/ <pattern>\t\t - search for a hex string");
     puts("/x <pattern>\t\t - search for a hex value (1-8 bytes wide)");
     puts("/a <pattern>\t\t - search for an ascii string");
+    puts("*  Search commands have optional :i|:s|:o modifiers to limit the search to image, stack or other (e.g. /:s <pattern>)");
+    puts("** Alternatively search could be ranged (e.g. /x@<start-address>:<length> <pattern>)");
 }
 
 void print_help_redirect_common() {
@@ -419,11 +419,11 @@ void print_help_hexdump_common() {
 
 void print_help_list_common() {
     puts("\n------------------------------------");
-    puts("*  Memory listing commands have optional :i|:s|:o modifiers to display only image || stack || other");
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
     puts("lmi\t\t\t - list memory regions info");
     puts("lmic\t\t\t - list committed memory regions info");
+    puts("*  Memory listing commands have optional :i|:s|:o modifiers to display only image, stack or other");
 }
 
 void print_help_inspect_common() {
@@ -483,11 +483,9 @@ static bool get_ptr_and_size(const char* cmd, void** p, int64_t* size) {
         if ((res == 3) && (ch == ' ')) {
             res = sscanf_s(cmd, "@%p:%lld", p, size);
             if (res < 2) {
-                fprintf(stderr, error_parsing_the_input);
                 return false;
             }
         } else if ((res != 3) || (ch != 'h')) {
-            fprintf(stderr, error_parsing_the_input);
             return false;
         }
     }
@@ -502,11 +500,9 @@ static bool get_ptr_and_size_1(const char* cmd, void** p, int64_t* size) {
         if ((res == 3) && (ch == ' ')) {
             res = sscanf_s(cmd, " @ %p:%lld", p, size);
             if (res < 2) {
-                fprintf(stderr, error_parsing_the_input);
                 return false;
             }
         } else if ((res != 3) || (ch != 'h')) {
-            fprintf(stderr, error_parsing_the_input);
             return false;
         }
     }
@@ -521,11 +517,9 @@ static bool get_ptr_and_size_2(const char* cmd, void** p, int64_t* size) {
         if (res < 3 || ch == '^' || ch == '&') {
             res = sscanf_s(cmd, " @ %p:%lld", p, size);
             if (res < 2) {
-                fprintf(stderr, error_parsing_the_input);
                 return false;
             }
         } else if (ch != 'h' && ch != '^' && ch != '&') {
-            fprintf(stderr, error_parsing_the_input);
             return false;
         }
     }
@@ -540,11 +534,9 @@ static bool get_id(const char* cmd, DWORD* id) {
         if (res < 2) {
             res = sscanf_s(cmd, " %d", id);
             if (res < 1) {
-                fprintf(stderr, error_parsing_the_input);
                 return false;
             }
         } else if (ch != 'h') {
-            fprintf(stderr, error_parsing_the_input);
             return false;
         }
     }
@@ -649,6 +641,10 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 in_type = input_type::it_ascii_string;
                 break;
             case ':':
+                if (scope_type != search_scope_type::mrt_all) {
+                    fprintf(stderr, "Scoped search and ranged search are incompatible.\n");
+                    return c_continue;
+                }
                 if ((i + 1) < cmd_length) {
                     scope_type = set_scope(cmd[i + 1]);
                     if (scope_type == search_scope_type::mrt_none) {
@@ -673,7 +669,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 break;
             case '@': {
                 if (scope_type != search_scope_type::mrt_all) {
-                    fprintf(stderr, "Ranged search incompatible with i|s|h modifiers.");
+                    fprintf(stderr, "Ranged search incompatible with i|s|h modifiers.\n");
                     return c_continue;
                 }
 
