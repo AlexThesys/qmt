@@ -785,6 +785,24 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
+    case c_list_modules:
+        try_redirect_output_to_file(&ctx->common);
+        list_modules(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_list_threads:
+        try_redirect_output_to_file(&ctx->common);
+        list_threads(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_list_thread_registers:
+        try_redirect_output_to_file(&ctx->common);
+        list_thread_registers(ctx);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
     case c_list_memory_regions :
         try_redirect_output_to_file(&ctx->common);
         if (!list_memory64_regions(ctx)) {
@@ -802,6 +820,12 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
     case c_list_memory_regions_info_committed:
         try_redirect_output_to_file(&ctx->common);
         list_memory_regions_info(ctx, true);
+        puts("====================================\n");
+        redirect_output_to_stdout(&ctx->common);
+        break;
+    case c_list_handles:
+        try_redirect_output_to_file(&ctx->common);
+        list_handle_descriptors(ctx);
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
@@ -866,30 +890,6 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
     case c_symbol_set_path:
         symbol_set_path(ctx);
         puts("====================================\n");
-        break;
-    case c_list_modules:
-        try_redirect_output_to_file(&ctx->common);
-        list_modules(ctx);
-        puts("====================================\n");
-        redirect_output_to_stdout(&ctx->common);
-        break;
-    case c_list_threads:
-        try_redirect_output_to_file(&ctx->common);
-        list_threads(ctx);
-        puts("====================================\n");
-        redirect_output_to_stdout(&ctx->common);
-        break;
-    case c_list_thread_registers:
-        try_redirect_output_to_file(&ctx->common);
-        list_thread_registers(ctx);
-        puts("====================================\n");
-        redirect_output_to_stdout(&ctx->common);
-        break;
-    case c_list_handles:
-        try_redirect_output_to_file(&ctx->common);
-        list_handle_descriptors(ctx);
-        puts("====================================\n");
-        redirect_output_to_stdout(&ctx->common);
         break;
     default :
         fprintf(stderr, unknown_command);
@@ -1167,9 +1167,9 @@ static void list_thread_registers(const dump_processing_context* ctx) {
         printf("*** ThreadID: 0x%04x ***\nRAX: 0x%p RBX: 0x%p RCX: 0x%p RDI: 0x%p RSI: 0x%p\n", thread.tid,
             (char*)thread.context->Rax, (char*)thread.context->Rbx, (char*)thread.context->Rcx, (char*)thread.context->Rdx, 
             (char*)thread.context->Rdi, (char*)thread.context->Rsi);
-        printf("RSP: 0x%p RBP: 0x%p RIP: 0x%p RFLAGS: 0x%04x\t\tMXCSR: 0x%04x\n",
+        printf("RSP: 0x%p RBP: 0x%p RIP: 0x%p RFLAGS: 0x%08x\tMXCSR: 0x%08x\n",
             (char*)thread.context->Rsp, (char*)thread.context->Rbp, (char*)thread.context->Rip,
-            (char*)thread.context->EFlags, (char*)thread.context->MxCsr);
+            thread.context->EFlags, thread.context->MxCsr);
         printf("R8:  0x%p R9:  0x%p R10: 0x%p R11: 0x%p\n",
             (char*)thread.context->R8, (char*)thread.context->R9, (char*)thread.context->R10, (char*)thread.context->R11);
         printf("R12: 0x%p R13: 0x%p R14: 0x%p R15: 0x%p\n",

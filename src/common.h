@@ -277,6 +277,9 @@ void symbol_find_next(common_processing_context* ctx);
 void symbol_find_prev(common_processing_context* ctx);
 void symbol_get_path(const common_processing_context* ctx);
 bool symbol_set_path_common(const common_processing_context* ctx);
+#ifndef NDEBUG
+void print_last_error_message();
+#endif // NDEBUG
 
 inline int is_hex(const char* pattern, size_t pattern_len) {
     return (((pattern_len > 2) && (pattern[pattern_len - 1] == 'h' || pattern[pattern_len - 1] == 'H'))

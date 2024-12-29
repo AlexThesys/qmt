@@ -1459,3 +1459,31 @@ bool symbol_set_path_common(const common_processing_context* ctx) {
     }
     return true;
 }
+
+#ifndef NDEBUG
+void print_last_error_message() {
+    DWORD error_code = GetLastError(); // Get the last error code
+    if (error_code == 0) {
+        fprintf(stderr, "No error.\n");
+        return;
+    }
+
+    LPVOID error_message_buffer;
+    DWORD format_result = FormatMessage(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        error_code,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPWSTR)&error_message_buffer,
+        0,
+        NULL
+    );
+
+    if (format_result == 0) {
+        fprintf(stderr, "Failed to format error message. Error code: %lu\n", error_code);
+    } else {
+        fwprintf(stderr, L"Error (%lu): %s\n", error_code, (LPWSTR)error_message_buffer);
+        LocalFree(error_message_buffer);
+    }
+}
+#endif // NDEBUG
