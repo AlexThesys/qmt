@@ -804,13 +804,20 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         case 'i': // same code as 'M'
         case 'M': {
             memset(ctx->i_data.module_name, 0, sizeof(ctx->i_data.module_name));
+#ifdef _UNICODE
             char buffer[MAX_PATH];
             memset(buffer, 0, sizeof(buffer));
-            int res = sscanf_s(cmd + 2, " %s", buffer, sizeof(buffer));
+#elif defined(_MBCS)
+            static_assert(sizeof(ctx->i_data.module_name) == MAX_PATH, "Module name exceeds maximum size.");
+            char* buffer = ctx->i_data.module_name;
+#endif
+
+            int res = sscanf_s(cmd + 2, " %s", buffer, MAX_PATH);
             if (res < 1) {
                 fprintf(stderr, error_parsing_the_input);
                 return c_continue;
             }
+#ifdef _UNICODE
             const int wc_size = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, NULL, 0);
             if (wc_size && (wc_size <= _countof(ctx->i_data.module_name))) {
                 int result = MultiByteToWideChar(CP_UTF8, 0, buffer, -1, ctx->i_data.module_name, wc_size);
@@ -822,7 +829,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 fprintf(stderr, "Module name exceeds maximum length: %s\n", buffer);
                 return c_continue;
             }
-
+#endif
             if (cmd[1] == 'M') {
                 command = c_inspect_module;
             } else { // if cmd[1] == 'i'

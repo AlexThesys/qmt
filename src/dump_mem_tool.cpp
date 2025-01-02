@@ -1272,12 +1272,31 @@ static void print_memory_info(const dump_processing_context* ctx) {
 }
 
 static void print_module_info(const dump_processing_context* ctx) {
+
+#ifdef _UNICODE
+    LPCWSTR module_name = ctx->common.i_data.module_name;
+#elif defined(_MBCS )
+    WCHAR module_name[MAX_PATH];
+    memset(module_name, 0, sizeof(module_name));
+    const int wc_size = MultiByteToWideChar(CP_UTF8, 0, ctx->common.i_data.module_name, -1, NULL, 0);
+    if (wc_size && (wc_size <= _countof(ctx->common.i_data.module_name))) {
+        int result = MultiByteToWideChar(CP_UTF8, 0, ctx->common.i_data.module_name, -1, module_name, wc_size);
+        if (result == 0) {
+            fprintf(stderr, "Error converting to wide character string: %s\n", module_name);
+            return;
+        }
+    } else {
+        fprintf(stderr, "Module name exceeds maximum length: %s\n", module_name);
+        return;
+    }
+#endif
+
     for (ULONG i = 0, num_modules = ctx->m_data.size(); i < num_modules; i++) {
         const module_data& m = ctx->m_data[i];
-        if (nullptr == wcsstr(m.name, ctx->common.i_data.module_name)) {
+        if (nullptr == wcsstr(m.name, module_name)) {
             continue;
         }
-        wprintf((LPWSTR)L"Module name: %s\n", m.name);
+        wprintf((LPCWSTR)L"Module name: %s\n", m.name);
         printf("Base of image: 0x%p | Size of image: 0x%04llx\n\n", m.base_of_image, m.size_of_image);
         break;
     }

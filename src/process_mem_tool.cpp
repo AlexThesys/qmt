@@ -46,7 +46,7 @@ static void print_memory_usage(const proc_processing_context* ctx);
 static bool test_selected_pid(proc_processing_context* ctx);
 static void print_memory_info(const proc_processing_context* ctx);
 static void data_block_calculate(proc_processing_context* ctx);
-static void print_module_info(const proc_processing_context* ctx, const wchar_t* module_name);
+static void print_module_info(const proc_processing_context* ctx, const TCHAR* module_name);
 static bool init_symbols(proc_processing_context* ctx);
 static void deinit_symbols(common_processing_context* ctx);
 static void symbol_set_path(const common_processing_context* ctx);
@@ -873,10 +873,15 @@ static int list_process_modules(const proc_processing_context* ctx, bool show_se
     // and display information about each module
     printf("====================================");
     do {
+#ifdef _UNICODE
         if (show_selected && (0 != _wcsicmp(me32.szModule, ctx->common.i_data.module_name))) {
             continue;
         }
-
+#elif defined(_MBCS )
+        if (show_selected && (0 != _stricmp(me32.szModule, ctx->common.i_data.module_name))) {
+            continue;
+        }
+#endif
         _tprintf(TEXT("\n\n     MODULE NAME:     %s"), me32.szModule);
         _tprintf(TEXT("\n     Executable     = %s"), me32.szExePath);
         _tprintf(TEXT("\n     Process ID     = 0x%08X"), me32.th32ProcessID);
@@ -1394,7 +1399,7 @@ static void data_block_calculate(proc_processing_context* ctx) {
     free(buffer);
 }
 
-void print_module_info(const proc_processing_context* ctx, const wchar_t *module_name) {
+void print_module_info(const proc_processing_context* ctx, const TCHAR *module_name) {
     if (!ctx->process_initialized) {
         fprintf(stderr, select_pid_first);
     }
@@ -1406,7 +1411,7 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
     HMODULE *modules = NULL;
     DWORD cb_needed = 0;
     MODULEINFO module_info;
-    wchar_t module_path[MAX_PATH];
+    TCHAR module_path[MAX_PATH];
     BOOL module_found = FALSE;
 
     // First call to get the number of modules
@@ -1432,16 +1437,24 @@ void print_module_info(const proc_processing_context* ctx, const wchar_t *module
     // Loop through the modules to find the one matching the provided name
     for (unsigned int i = 0; i < (cb_needed / sizeof(HMODULE)); i++) {
         // Get the module's full path
-        if (GetModuleFileNameExW(process, modules[i], module_path, sizeof(module_path) / sizeof(wchar_t))) {
-            // Check if the filename matches the requested module name
-            const wchar_t *filename = wcsrchr(module_path, L'\\'); // Get just the filename
+        if (GetModuleFileNameEx(process, modules[i], module_path, sizeof(module_path) / sizeof(wchar_t))) {
+#ifdef _UNICODE
+            const TCHAR *filename = wcsrchr(module_path, L'\\');
+#elif defined(_MBCS )
+            const TCHAR* filename = strrchr(module_path, '\\');
+#endif
             if (filename) {
-                filename++; // Skip the backslash
+                filename++;
             } else {
-                filename = module_path; // No backslash, use the full path
+                filename = module_path;
             }
 
-            if (_wcsicmp(filename, module_name) == 0) { // Case-insensitive comparison
+#ifdef _UNICODE
+            if (_wcsicmp(filename, module_name) == 0)
+#elif defined(_MBCS )
+            if (_stricmp(filename, module_name) == 0)
+#endif
+            { // Case-insensitive comparison
                 module_found = TRUE;
 
                 // Retrieve module information

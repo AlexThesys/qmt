@@ -178,7 +178,7 @@ struct redirection_data {
 struct inspect_data {
     const char* memory_address;
     DWORD tid;
-    wchar_t module_name[MAX_PATH];
+    TCHAR module_name[MAX_PATH];
 };
 
 struct calculate_data {
