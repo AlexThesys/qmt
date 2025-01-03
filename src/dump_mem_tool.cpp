@@ -708,7 +708,7 @@ static void print_help_list() {
     puts("------------------------------------");
     puts("lh\t\t\t - list handles");
     puts("ltr\t\t\t - list thread GP registers");
-    puts("lm\t\t\t - list memory regions (regions to search through)");
+    puts("lmd\t\t\t - list memory regions present in dump");
     puts("------------------------------------\n");
 }
 
@@ -803,7 +803,7 @@ static void execute_command(input_command cmd, dump_processing_context *ctx) {
         puts("====================================\n");
         redirect_output_to_stdout(&ctx->common);
         break;
-    case c_list_memory_regions :
+    case c_list_dump_memory_regions :
         try_redirect_output_to_file(&ctx->common);
         if (!list_memory64_regions(ctx)) {
             list_memory_regions(ctx);

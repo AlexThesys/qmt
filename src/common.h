@@ -86,7 +86,7 @@ enum input_command {
     c_list_modules,
     c_list_threads,
     c_list_thread_registers,
-    c_list_memory_regions,
+    c_list_dump_memory_regions,
     c_list_memory_regions_info,
     c_list_memory_regions_info_committed,
     c_list_handles,

@@ -17,7 +17,7 @@ static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings"
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list", 
                                 "-s", "--disable-symbols"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.3.8";
+static const char* program_version = "Version 0.3.9";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = INVALID_THREAD_NUM;
@@ -421,8 +421,8 @@ void print_help_list_common() {
     puts("\n------------------------------------");
     puts("lM\t\t\t - list process modules");
     puts("lt\t\t\t - list process threads");
-    puts("lmi\t\t\t - list memory regions info");
-    puts("lmic\t\t\t - list committed memory regions info");
+    puts("lm\t\t\t - list memory regions info");
+    puts("lmc\t\t\t - list committed memory regions info");
     puts("*  Memory listing commands have optional :i|:s|:o modifiers to display only image, stack or other");
 }
 
@@ -865,15 +865,15 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 command = c_not_set;
             }
         } else if (cmd[1] == 'm') {
-            if (cmd[2] == 0) {
-                command = c_list_memory_regions;
-            } else if (cmd[2] == 'i') {
+            if (cmd[2] == 'd') {
+                command = c_list_dump_memory_regions;
+            } else {
                 const size_t cmd_length = strlen(cmd);
                 // defaults
                 command = c_list_memory_regions_info;
                 search_scope_type scope_type = search_scope_type::mrt_all;
                 bool stop_parsing = false;
-                for (int i = 3; (i < cmd_length) && !stop_parsing; i++) {
+                for (int i = 2; (i < cmd_length) && !stop_parsing; i++) {
                     switch (cmd[i]) {
                     case 'c':
                         command = c_list_memory_regions_info_committed;
@@ -895,8 +895,6 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 }
                 ctx->pdata.scope_type = scope_type;
 
-            } else {
-                command = c_not_set;
             }
         } else if (cmd[1] == 'h' && cmd[2] == 0) {
             command = c_list_handles;
@@ -1481,7 +1479,7 @@ void print_last_error_message() {
         NULL,
         error_code,
         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        (LPWSTR)&error_message_buffer,
+        (LPTSTR)&error_message_buffer,
         0,
         NULL
     );
@@ -1489,7 +1487,7 @@ void print_last_error_message() {
     if (format_result == 0) {
         fprintf(stderr, "Failed to format error message. Error code: %lu\n", error_code);
     } else {
-        fwprintf(stderr, L"Error (%lu): %s\n", error_code, (LPWSTR)error_message_buffer);
+        fwprintf(stderr, L"Error (%lu): %s\n", error_code, (LPTSTR)error_message_buffer);
         LocalFree(error_message_buffer);
     }
 }

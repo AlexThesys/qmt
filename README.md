@@ -1,5 +1,5 @@
 # Quick Memory Tools  
-**Version 0.3.8**  
+**Version 0.3.9**  
 
 ## ==== Command Line Options ====  
 
@@ -45,8 +45,8 @@
 `ii <file-path>` - inspect image<br/>
 `lM`	- list process modules  
 `lt`	- list process threads  
-`lmi`	- list memory regions info  
-`lmic`	- list committed memory regions info<br/>
+`lm`	- list memory regions info  
+`lmc`	- list committed memory regions info<br/>
 `s@<address>` - resolve symbol at address<br/>
 `sn <name>` - resolve symbol by name<br/>
 `sf` 	- show next symbol<br/>
@@ -70,5 +70,5 @@
 
 `/xr <pattern>`	- search for a hex value in GP registers  
 `ltr`	- list thread GP registers  
-`lm`	- list memory regions (regions to search through)<br/>
+`lmd`	- list memory regions present in dump<br/>
 `lh` - list handles
