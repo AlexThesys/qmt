@@ -865,7 +865,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 command = c_not_set;
             }
         } else if (cmd[1] == 'm') {
-            if (cmd[2] == 'd') {
+            if (cmd[2] == 'd' && cmd[3] == 0) {
                 command = c_list_dump_memory_regions;
             } else {
                 const size_t cmd_length = strlen(cmd);
