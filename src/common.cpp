@@ -1389,7 +1389,7 @@ void symbol_find_next(common_processing_context* ctx) {
         return;
     }
     if (!ctx->sym_ctx.sym_initialized) {
-        fprintf(stderr, "Current symbol haven't been set yet.\n");
+        fprintf(stderr, "Current symbol hasn't been set yet.\n");
         return;
     }
     PSYMBOL_INFO symbol_info = ctx->sym_ctx.symbol_info;
@@ -1406,7 +1406,7 @@ void symbol_find_prev(common_processing_context* ctx) {
         return;
     }
     if (!ctx->sym_ctx.sym_initialized) {
-        fprintf(stderr, "Current symbol haven't been set yet.\n");
+        fprintf(stderr, "Current symbol hasn't been set yet.\n");
         return;
     }
     PSYMBOL_INFO symbol_info = ctx->sym_ctx.symbol_info;
