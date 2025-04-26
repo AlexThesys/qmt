@@ -194,7 +194,7 @@ static void find_pattern(search_context_dump* search_ctx) {
             continue;
         }
 
-        if (bytes_to_read >= pattern_len) {
+        if ((int64_t)bytes_to_read >= pattern_len) {
             const char* buffer_ptr = buffer;
             int64_t buffer_size = (int64_t)bytes_to_read;
 
@@ -209,10 +209,11 @@ static void find_pattern(search_context_dump* search_ctx) {
                 const char* match = (const char*)(r_info.StartOfMemoryRange + buffer_offset + start_offset);
                 if (!ranged_search || ((match >= range_start) && ((match < range_end)))) {
                     mem_snapshot snapshot;
-                    snapshot.size = _min(sizeof(snapshot.data), buffer_size);
-                    memcpy(&snapshot.data, buffer_ptr, snapshot.size);
+                    const int64_t size = _min(sizeof(snapshot.data), buffer_size);
+                    snapshot.size = (uint32_t)size;
+                    memcpy(&snapshot.data, buffer_ptr, size);
                     search_ctx->common.matches_lock.lock();
-                    const uint32_t current_id = (uint32_t)matches.size();
+                    const uint32_t current_id = (uint32_t)mem_snapshots.size();
                     matches.push_back(search_match{ block.info_id, current_id, match });
                     mem_snapshots.push_back(snapshot);
                     search_ctx->common.matches_lock.unlock();
@@ -312,7 +313,7 @@ static void search_and_sync(search_context_dump& search_ctx) {
         const uint64_t offset = search_ctx.memory_list->BaseRva + cumulative_offset;
         cumulative_offset += mem_desc.DataSize;
         const SIZE_T region_size = static_cast<SIZE_T>(mem_desc.DataSize);
-        if (region_size < pattern_len) {
+        if ((int64_t)region_size < pattern_len) {
             continue;
         }
         if (scoped_search) {
@@ -341,11 +342,11 @@ static void search_and_sync(search_context_dump& search_ctx) {
     const size_t block_size = alloc_granularity * g_num_alloc_blocks;
     const size_t bytes_to_read_ideal = block_size + extra_chunk;
 
-    const size_t num_threads = _min(std::thread::hardware_concurrency(), g_max_threads);
+    const int num_threads = _min((int)std::thread::hardware_concurrency(), g_max_threads);
     search_ctx.common.workers_sem.set_max_count(num_threads);
     std::vector<char*> buffers(num_threads);
     std::vector<std::thread> workers; workers.reserve(num_threads);
-    for (size_t i = 0; i < num_threads; i++) {
+    for (int i = 0; i < num_threads; i++) {
         workers.push_back(std::thread(find_pattern, &search_ctx));
     }
 
@@ -437,7 +438,7 @@ static void print_search_results(search_context_dump& search_ctx) {
                 }
             }
             printf("Start of Memory Region: 0x%p | Region Size: 0x%016llx\n\n",
-                r_info.StartOfMemoryRange, r_info.DataSize);
+                (void*)r_info.StartOfMemoryRange, r_info.DataSize);
 
             prev_info_id = info_id;
         }
@@ -671,12 +672,12 @@ static void print_hexdump_dump(dump_processing_context* ctx) {
 
     switch (ctx->common.hdata.hex_op.op) {
     case hexdump_op::ho_xor:
-        for (int i = 0, j = 0, sz = bytes.size(); i < sz; i++, j = (j + 1) % ctx->common.hdata.hex_op.str_len) {
+        for (int i = 0, j = 0, sz = (int)bytes.size(); i < sz; i++, j = (j + 1) % ctx->common.hdata.hex_op.str_len) {
             bytes[i] ^= ctx->common.hdata.hex_op.hex_str[j];
         }
         break;
     case hexdump_op::ho_and:
-        for (int i = 0, j = 0, sz = bytes.size(); i < sz; i++, j = (j + 1) % ctx->common.hdata.hex_op.str_len) {
+        for (int i = 0, j = 0, sz = (int)bytes.size(); i < sz; i++, j = (j + 1) % ctx->common.hdata.hex_op.str_len) {
             bytes[i] &= ctx->common.hdata.hex_op.hex_str[j];
         }
         break;
@@ -1074,7 +1075,7 @@ static bool list_memory64_regions(const dump_processing_context* ctx) {
     ULONG prev_module = (ULONG)(-1);
     for (ULONG i = 0; i < num_memory_regions; ++i) {
         const MINIDUMP_MEMORY_DESCRIPTOR64& mem_desc = memory_descriptors[i];
-        for (size_t m = 0, sz = ctx->m_data.size(); m < sz; m++) {
+        for (ULONG m = 0, sz = (ULONG)ctx->m_data.size(); m < sz; m++) {
             const module_data& mdata = ctx->m_data[m];
             if ((prev_module != m) && ((ULONG64)mdata.base_of_image <= mem_desc.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (mem_desc.StartOfMemoryRange + mem_desc.DataSize))) {
                 puts("------------------------------------\n");
@@ -1083,7 +1084,7 @@ static bool list_memory64_regions(const dump_processing_context* ctx) {
                 break;
             }
         }
-        printf("Start Address: 0x%p | Size: 0x%016llx\n", mem_desc.StartOfMemoryRange, mem_desc.DataSize);
+        printf("Start Address: 0x%p | Size: 0x%016llx\n", (void*)mem_desc.StartOfMemoryRange, mem_desc.DataSize);
     }
     puts("");
 
@@ -1112,7 +1113,7 @@ static bool list_memory_regions(const dump_processing_context* ctx) {
     ULONG prev_module = (ULONG)(-1);
     for (ULONG i = 0; i < num_memory_regions; ++i) {
         const MINIDUMP_MEMORY_DESCRIPTOR& mem_desc = memory_descriptors[i];
-        for (size_t m = 0, sz = ctx->m_data.size(); m < sz; m++) {
+        for (ULONG m = 0, sz = (ULONG)ctx->m_data.size(); m < sz; m++) {
             const module_data& mdata = ctx->m_data[m];
             if ((prev_module != m) && ((ULONG64)mdata.base_of_image <= mem_desc.StartOfMemoryRange) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (mem_desc.StartOfMemoryRange + mem_desc.Memory.DataSize))) {
                 puts("------------------------------------\n");
@@ -1121,7 +1122,7 @@ static bool list_memory_regions(const dump_processing_context* ctx) {
                 break;
             }
         }
-        printf("Start Address: 0x%p\n", mem_desc.StartOfMemoryRange);
+        printf("Start Address: 0x%p\n", (void*)mem_desc.StartOfMemoryRange);
     }
     puts("");
 
@@ -1170,16 +1171,16 @@ static void list_thread_registers(const dump_processing_context* ctx) {
 
     for (ULONG i = 0; i < num_threads; i++) {
         const thread_info_dump& thread = ctx->t_data[i];
-        printf("*** ThreadID: 0x%04x ***\nRAX: 0x%p RBX: 0x%p RCX: 0x%p RDI: 0x%p RSI: 0x%p\n", thread.tid,
-            (char*)thread.context->Rax, (char*)thread.context->Rbx, (char*)thread.context->Rcx, (char*)thread.context->Rdx, 
-            (char*)thread.context->Rdi, (char*)thread.context->Rsi);
-        printf("RSP: 0x%p RBP: 0x%p RIP: 0x%p RFLAGS: 0x%08x\tMXCSR: 0x%08x\n",
-            (char*)thread.context->Rsp, (char*)thread.context->Rbp, (char*)thread.context->Rip,
-            thread.context->EFlags, thread.context->MxCsr);
+        printf("*** ThreadID: 0x%04x ***\nRAX: 0x%p RBX: 0x%p RCX: 0x%p RDX: 0x%p\n", thread.tid,
+            (char*)thread.context->Rax, (char*)thread.context->Rbx, (char*)thread.context->Rcx, (char*)thread.context->Rdx);
+        printf("RDI: 0x%p RSI: 0x%p RSP: 0x%p RBP: 0x%p\n",
+            (char*)thread.context->Rdi, (char*)thread.context->Rsi, (char*)thread.context->Rsp, (char*)thread.context->Rbp);
         printf("R8:  0x%p R9:  0x%p R10: 0x%p R11: 0x%p\n",
             (char*)thread.context->R8, (char*)thread.context->R9, (char*)thread.context->R10, (char*)thread.context->R11);
         printf("R12: 0x%p R13: 0x%p R14: 0x%p R15: 0x%p\n",
             (char*)thread.context->R11, (char*)thread.context->R12, (char*)thread.context->R13, (char*)thread.context->R14);
+        printf("RIP: 0x%p\tRFLAGS: 0x%08x\tMXCSR: 0x%08x\n",
+            (char*)thread.context->Rip, thread.context->EFlags, thread.context->MxCsr);
         puts("\n----------------\n");
     }
 }
@@ -1214,7 +1215,7 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
         }
 
         num_regions++;
-        for (size_t m = 0, sz = ctx->m_data.size(); m < sz; m++) {
+        for (ULONG m = 0, sz = (ULONG)ctx->m_data.size(); m < sz; m++) {
             const module_data& mdata = ctx->m_data[m];
             if ((prev_module != m) && ((ULONG64)mdata.base_of_image <= mem_info.BaseAddress) && (((ULONG64)mdata.base_of_image + mdata.size_of_image) >= (mem_info.BaseAddress + mem_info.RegionSize))) {
                 puts("------------------------------------\n");
@@ -1224,7 +1225,7 @@ static void list_memory_regions_info(const dump_processing_context* ctx, bool sh
             }
         }
         printf("Base Address: 0x%p | Size: 0x%016llx | State: %s\t | Protect: %s\t",
-            memory_info[i].BaseAddress, memory_info[i].RegionSize, 
+            (void*)memory_info[i].BaseAddress, memory_info[i].RegionSize, 
             get_page_state(mem_info.State), get_page_protect(mem_info.Protect));
         print_page_type(mem_info.Type);
     }
@@ -1269,7 +1270,7 @@ static void print_memory_info(const dump_processing_context* ctx) {
             }
         }
         printf("Base Address: 0x%p | Size: 0x%016llx | State: %s\t | Protect: %s\t",
-            memory_info[i].BaseAddress, memory_info[i].RegionSize,
+            (void*)memory_info[i].BaseAddress, memory_info[i].RegionSize,
             get_page_state(mem_info.State), get_page_protect(mem_info.Protect));
         print_page_type(mem_info.Type);
         puts("");
@@ -1288,16 +1289,16 @@ static void print_module_info(const dump_processing_context* ctx) {
     if (wc_size && (wc_size <= _countof(ctx->common.i_data.module_name))) {
         int result = MultiByteToWideChar(CP_UTF8, 0, ctx->common.i_data.module_name, -1, module_name, wc_size);
         if (result == 0) {
-            fprintf(stderr, "Error converting to wide character string: %s\n", module_name);
+            fwprintf(stderr, L"Error converting to wide character string: %s\n", module_name);
             return;
         }
     } else {
-        fprintf(stderr, "Module name exceeds maximum length: %s\n", module_name);
+        fwprintf(stderr, L"Module name exceeds maximum length: %s\n", module_name);
         return;
     }
 #endif
 
-    for (ULONG i = 0, num_modules = ctx->m_data.size(); i < num_modules; i++) {
+    for (ULONG i = 0, num_modules = (ULONG)ctx->m_data.size(); i < num_modules; i++) {
         const module_data& m = ctx->m_data[i];
         if (nullptr == wcsstr(m.name, module_name)) {
             continue;
@@ -1309,23 +1310,23 @@ static void print_module_info(const dump_processing_context* ctx) {
 }
 
 static void print_thread_info(const dump_processing_context* ctx) {
-    for (ULONG i = 0, num_threads = ctx->t_data.size(); i < num_threads; i++) {
+    for (ULONG i = 0, num_threads = (ULONG)ctx->t_data.size(); i < num_threads; i++) {
         const thread_info_dump& thread = ctx->t_data[i];
         if (thread.tid != ctx->common.i_data.tid) {
             continue;
         }
         printf("ThreadID: 0x%04x | Priority Class: 0x%04x | Priority: 0x%04x | Stack Base: 0x%p\n\n",
             thread.tid, thread.priority_class, thread.priority, (char*)thread.stack_base);
-        printf("RAX: 0x%p RBX: 0x%p RCX: 0x%p RDI: 0x%p RSI: 0x%p\n",
-            (char*)thread.context->Rax, (char*)thread.context->Rbx, (char*)thread.context->Rcx, (char*)thread.context->Rdx,
-            (char*)thread.context->Rdi, (char*)thread.context->Rsi);
-        printf("RSP: 0x%p RBP: 0x%p RIP: 0x%p RFLAGS: 0x%04x\t\tMXCSR: 0x%04x\n",
-            (char*)thread.context->Rsp, (char*)thread.context->Rbp, (char*)thread.context->Rip,
-            (char*)thread.context->EFlags, (char*)thread.context->MxCsr);
+        printf("RAX: 0x%p RBX: 0x%p RCX: 0x%p RDX: 0x%p\n",
+            (char*)thread.context->Rax, (char*)thread.context->Rbx, (char*)thread.context->Rcx, (char*)thread.context->Rdx);
+        printf("RDI: 0x%p RSI: 0x%p RSP: 0x%p RBP: 0x%p\n",
+            (char*)thread.context->Rdi, (char*)thread.context->Rsi, (char*)thread.context->Rsp, (char*)thread.context->Rbp);
         printf("R8:  0x%p R9:  0x%p R10: 0x%p R11: 0x%p\n",
             (char*)thread.context->R8, (char*)thread.context->R9, (char*)thread.context->R10, (char*)thread.context->R11);
         printf("R12: 0x%p R13: 0x%p R14: 0x%p R15: 0x%p\n",
             (char*)thread.context->R11, (char*)thread.context->R12, (char*)thread.context->R13, (char*)thread.context->R14);
+        printf("RIP: 0x%p\tRFLAGS: 0x%08x\tMXCSR: 0x%08x\n",
+            (char*)thread.context->Rip, thread.context->EFlags, thread.context->MxCsr);
         puts("");
         break;
     }
@@ -1457,7 +1458,7 @@ static void deinit_symbols(common_processing_context* ctx) {
 
 void reload_modules(const dump_processing_context* ctx) {
     const auto& mdata = ctx->m_data;
-    printf("Loading symbols for %lu modules...\n", mdata.size());
+    printf("Loading symbols for %llu modules...\n", mdata.size());
     char module_path[MAX_PATH];
     for (const auto& m : mdata) {
         if (m.name != nullptr) {
@@ -1465,7 +1466,7 @@ void reload_modules(const dump_processing_context* ctx) {
             memset(module_path, 0, sizeof(module_path));
             WideCharToMultiByte(CP_ACP, 0, m.name, -1, module_path, sizeof(module_path), NULL, NULL);
             if (module_path == 0) {
-                fprintf(stderr, "Failed to extract module name for module at base 0x%llx\n", m.base_of_image);
+                fprintf(stderr, "Failed to extract module name for module at base 0x%p\n", m.base_of_image);
                 continue;
             }
             size_t module_len = strlen(module_path);
@@ -1478,7 +1479,7 @@ void reload_modules(const dump_processing_context* ctx) {
             const char* module_name = module_path + module_len;
             DWORD64 base_of_dll = (DWORD64)m.base_of_image;
             DWORD64 size_of_dll = m.size_of_image;
-            if (SymLoadModuleEx(ctx->file_handle, NULL, module_name, module_name, base_of_dll, size_of_dll, NULL, 0)) {
+            if (SymLoadModuleEx(ctx->file_handle, NULL, module_name, module_name, base_of_dll, (DWORD)size_of_dll, NULL, 0)) {
                 printf("Loaded symbols for module: %s (Base: 0x%016llx)\n", module_name, base_of_dll);
             } else {
                 fprintf(stderr, "Failed to load symbols for module: %s. Error: %lu\n", module_name, GetLastError());

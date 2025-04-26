@@ -127,7 +127,7 @@ static void find_pattern(search_context_proc* search_ctx) {
             }
         }
 
-        if (bytes_read >= pattern_len) {
+        if ((int64_t)bytes_read >= pattern_len) {
             const char* buffer_ptr = buffer;
             int64_t buffer_size = (int64_t)bytes_read;
 
@@ -142,8 +142,9 @@ static void find_pattern(search_context_proc* search_ctx) {
                 const char* match = ptr + buffer_offset;
                 if (!ranged_search || ((match >= range_start) && ((match < range_end)))) {
                     mem_snapshot snapshot;
-                    snapshot.size = _min(sizeof(snapshot.data), buffer_size);
-                    memcpy(&snapshot.data, buffer_ptr, snapshot.size);
+                    const int64_t size = _min(sizeof(snapshot.data), buffer_size);
+                    snapshot.size = (uint32_t)size;
+                    memcpy(&snapshot.data, buffer_ptr, size);
                     search_ctx->common.matches_lock.lock();
                     const uint32_t current_id = (uint32_t)matches.size();
                     matches.push_back(search_match{ block.info_id, current_id, match });
@@ -237,10 +238,10 @@ static void search_and_sync(search_context_proc& search_ctx) {
     const size_t bytes_to_read_ideal = block_size + extra_chunk;
     search_ctx.block_size_ideal = bytes_to_read_ideal;
 
-    const size_t num_threads = _min(std::thread::hardware_concurrency(), g_max_threads);
+    const int num_threads = _min((int)std::thread::hardware_concurrency(), g_max_threads);
     search_ctx.common.workers_sem.set_max_count(num_threads);
     std::vector<std::thread> workers; workers.reserve(num_threads);
-    for (size_t i = 0; i < num_threads; i++) {
+    for (int i = 0; i < num_threads; i++) {
         workers.push_back(std::thread(find_pattern, &search_ctx));
     }
     
@@ -264,7 +265,7 @@ static void search_and_sync(search_context_proc& search_ctx) {
             }
             const char* block_start = p + bytes_offset;
             if (!ranged_search || ranges_intersect((uint64_t)block_start, bytes_to_read, (uint64_t)ctx.common.pdata.range.start, ctx.common.pdata.range.length)) {
-                block_info_proc b = { block_start, bytes_to_read, i };
+                block_info_proc b = { block_start, bytes_to_read, (uint32_t)i };
                 block_info_queue.try_push(b);
                 search_ctx.common.workers_sem.signal();
             }
@@ -393,7 +394,7 @@ static void print_hexdump_proc(proc_processing_context* ctx) {
                 const size_t region_size = info.RegionSize;
                 if ((address >= info.BaseAddress) && (address < ((uint8_t*)info.BaseAddress + region_size))) {
                     bytes_to_read = ctx->common.hdata.num_to_display * ctx->common.hdata.mode;
-                    bytes_to_read = _min(bytes_to_read, (region_size - (address - info.BaseAddress)));
+                    bytes_to_read = _min(bytes_to_read, (region_size - ptrdiff_t(address - (uint8_t*)info.BaseAddress)));
                     bytes_to_read = (bytes_to_read / ctx->common.hdata.mode) * ctx->common.hdata.mode;
                     buffer = (uint8_t*)malloc(bytes_to_read);
                     SIZE_T bytes_read = 0;
@@ -788,7 +789,7 @@ int run_process_inspection() {
     }
     if (ctx.process_initialized && is_process_handle_valid(ctx.process)) {
         if (!CloseHandle(ctx.process)) {
-            fprintf(stderr, "Failed closing the handle for PID: 0x%%x\n", ctx.pid);
+            fprintf(stderr, "Failed closing the handle for PID: 0x%x\n", ctx.pid);
         }
     }
 
@@ -983,6 +984,8 @@ static bool gather_thread_info(const proc_processing_context* ctx, std::vector<t
     } while (Thread32Next(hThreadSnap, &te32));
 
     CloseHandle(hThreadSnap);
+
+    return (TRUE);
 }
 
 static int list_process_threads(const proc_processing_context* ctx, bool show_selected) {
@@ -1000,7 +1003,7 @@ static int list_process_threads(const proc_processing_context* ctx, bool show_se
         _tprintf(TEXT("\n\n     THREAD ID         = 0x%08X"), ti.thread_id);
         _tprintf(TEXT("\n     Base priority     = %d"), ti.base_prio);
         _tprintf(TEXT("\n     Delta priority    = %d"), ti.delta_prio);
-        _tprintf(TEXT("\n     Stack Base        = 0x%p"), ti.stack_ptr);
+        _tprintf(TEXT("\n     Stack Base        = 0x%p"), (void*)ti.stack_ptr);
         _tprintf(TEXT("\n     Stack Size        = 0x%llx"), ti.stack_size);
         _tprintf(TEXT("\n"));
         if (show_selected) {
@@ -1042,7 +1045,7 @@ static int traverse_heap_list(const proc_processing_context* ctx, bool list_bloc
             ZeroMemory(&he, sizeof(HEAPENTRY32));
             he.dwSize = sizeof(HEAPENTRY32);
             if (Heap32First(&he, ctx->pid, hl.th32HeapID)) {
-                printf("\n---- Heap ID: 0x%x ----\n", hl.th32HeapID);
+                printf("\n---- Heap ID: 0x%llx ----\n", hl.th32HeapID);
 
                 ULONG_PTR start_address = he.dwAddress;
                 ULONG_PTR end_address = start_address;
@@ -1063,7 +1066,7 @@ static int traverse_heap_list(const proc_processing_context* ctx, bool list_bloc
                             check_num_results = false;
                         }
                         num_blocks++;
-                        printf("Start address: 0x%p Block size: 0x%x\n", he.dwAddress, he.dwBlockSize);
+                        printf("Start address: 0x%p Block size: 0x%llx\n", (void*)he.dwAddress, he.dwBlockSize);
                     }
 
                     if (calculate_entropy) {
@@ -1083,7 +1086,7 @@ static int traverse_heap_list(const proc_processing_context* ctx, bool list_bloc
                             entropy_calculate_frequencies(&e_ctx, ent_buffer, he.dwBlockSize);
                             total_size_blocks += he.dwBlockSize;
                         } else {
-                            printf("Start address: 0x%p Block size: 0x%x\n", he.dwAddress, he.dwBlockSize);
+                            printf("Start address: 0x%p Block size: 0x%llx\n", (void*)he.dwAddress, he.dwBlockSize);
                             printf("Failed reading process memory. Error code: %lu\n", GetLastError());
                         }
                     }
@@ -1097,8 +1100,8 @@ static int traverse_heap_list(const proc_processing_context* ctx, bool list_bloc
                     he.dwSize = sizeof(HEAPENTRY32);
                 } while (Heap32Next(&he));
                 end_address += last_block_size;
-                printf("\nStart Address: 0x%p\n", start_address);
-                printf("End Address: 0x%p\n", end_address);
+                printf("\nStart Address: 0x%p\n", (void*)start_address);
+                printf("End Address: 0x%p\n", (void*)end_address);
                 printf("Size: 0x%llx\n", ptrdiff_t(end_address - start_address));
                 if (calculate_entropy) {
                     const double entropy = entropy_compute(&e_ctx, total_size_blocks);
@@ -1203,14 +1206,14 @@ void print_process_memory_info(HANDLE process_handle) {
     if (GetProcessMemoryInfo(process_handle, &memory_counters, sizeof(memory_counters))) {
         printf("Process Memory Information:\n");
         printf("PageFaultCount:\t\t\t %lu\n", memory_counters.PageFaultCount);
-        printf("PeakWorkingSetSize:\t\t %lu bytes\n", memory_counters.PeakWorkingSetSize);
-        printf("WorkingSetSize:\t\t\t %lu bytes\n", memory_counters.WorkingSetSize);
-        printf("QuotaPeakPagedPoolUsage:\t %lu bytes\n", memory_counters.QuotaPeakPagedPoolUsage);
-        printf("QuotaPagedPoolUsage:\t\t %lu bytes\n", memory_counters.QuotaPagedPoolUsage);
-        printf("QuotaPeakNonPagedPoolUsage:\t %lu bytes\n", memory_counters.QuotaPeakNonPagedPoolUsage);
-        printf("QuotaNonPagedPoolUsage:\t\t %lu bytes\n", memory_counters.QuotaNonPagedPoolUsage);
-        printf("PagefileUsage:\t\t\t %lu bytes\n", memory_counters.PagefileUsage);
-        printf("PeakPagefileUsage:\t\t %lu bytes\n", memory_counters.PeakPagefileUsage);
+        printf("PeakWorkingSetSize:\t\t %llu bytes\n", memory_counters.PeakWorkingSetSize);
+        printf("WorkingSetSize:\t\t\t %llu bytes\n", memory_counters.WorkingSetSize);
+        printf("QuotaPeakPagedPoolUsage:\t %llu bytes\n", memory_counters.QuotaPeakPagedPoolUsage);
+        printf("QuotaPagedPoolUsage:\t\t %llu bytes\n", memory_counters.QuotaPagedPoolUsage);
+        printf("QuotaPeakNonPagedPoolUsage:\t %llu bytes\n", memory_counters.QuotaPeakNonPagedPoolUsage);
+        printf("QuotaNonPagedPoolUsage:\t\t %llu bytes\n", memory_counters.QuotaNonPagedPoolUsage);
+        printf("PagefileUsage:\t\t\t %llu bytes\n", memory_counters.PagefileUsage);
+        printf("PeakPagefileUsage:\t\t %llu bytes\n", memory_counters.PeakPagefileUsage);
     } else {
         fprintf(stderr, "Failed to retrieve process memory information. Error code: %lu\n", GetLastError());
     }
@@ -1254,7 +1257,7 @@ static void print_memory_usage(const proc_processing_context* ctx) {
 static bool test_selected_pid(proc_processing_context* ctx) {
     if (is_process_handle_valid(ctx->process)) {
         if (!CloseHandle(ctx->process)) {
-            fprintf(stderr, "Failed closing the handle for PID: 0x%%x\n", ctx->pid);
+            fprintf(stderr, "Failed closing the handle for PID: 0x%x\n", ctx->pid);
         }
     }
     HANDLE process;
@@ -1471,7 +1474,7 @@ void print_module_info(const proc_processing_context* ctx, const TCHAR *module_n
                     _tprintf(TEXT("\n     Entry point    = 0x%p\n"), module_info.EntryPoint);
                 } else {
                     if (g_show_failed_readings) {
-                        fwprintf(stderr, L"Failed to get module information for: %s\n", module_name);
+                        _ftprintf(stderr, _T("Failed to get module information for: %s\n"), module_name);
                     }
                 }
                 break;
@@ -1480,9 +1483,8 @@ void print_module_info(const proc_processing_context* ctx, const TCHAR *module_n
     }
 
     if (!module_found) {
-        wprintf(L"Module not found: %s\n", module_name);
+        _ftprintf(stderr, _T("Module not found: %s\n"), module_name);
     }
-
     // Clean up
     free(modules);
 }
@@ -1500,7 +1502,7 @@ static bool init_symbols(proc_processing_context* ctx) {
         char search_path[SYMBOL_PATHS_SIZE];
         memset(search_path, 0, sizeof(search_path));
         if (SymGetSearchPath(ctx->process, search_path, MAX_PATH)) {
-            size_t path_len = strlen(search_path);
+            int path_len = (int)strlen(search_path);
             search_path[path_len++] = ';';
             char* module_path = search_path + path_len;
             if (GetModuleFileNameExA(ctx->process, NULL, module_path, SYMBOL_PATHS_SIZE - path_len)) {

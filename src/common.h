@@ -16,8 +16,7 @@
 #include <vector> // temp
 #include <algorithm>
 
-#include "circular_buffer.h"
-#include "semaphore.h"
+#include "utils.h"
 
 #ifdef TRACY_ENABLE
 #include "Tracy.hpp"
@@ -299,7 +298,7 @@ inline bool is_pow_2(uint64_t x)
     return (x & (x - 1)) == 0;
 }
 
-inline int multiple_of_n(int64_t val, int64_t n) {
+inline int64_t multiple_of_n(int64_t val, int64_t n) {
     return ((val - 1) | (n - 1)) + 1;
 }
 

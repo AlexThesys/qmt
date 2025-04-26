@@ -238,8 +238,8 @@ const uint8_t* strstr_u8(const uint8_t* str, size_t str_sz, const uint8_t* subst
 
         uint32_t mask = (uint32_t)_mm_movemask_epi8(xmm0);
 
-        const uint8_t max_offset = (uint8_t)_min(step, str_sz - (j + substr_sz) + 1);
-        const uint32_t max_offset_mask = (1 << max_offset) - 1;
+        const uint32_t max_offset = (uint32_t)(_min(step, str_sz - (j + substr_sz) + 1));
+        const uint32_t max_offset_mask = (1 << (max_offset & 0xFF)) - 1;
         mask &= max_offset_mask;
         unsigned long bit = 0;
 
@@ -479,7 +479,7 @@ static bool get_ptr_and_size(const char* cmd, void** p, int64_t* size) {
     int res = sscanf_s(cmd, "@%p:0x%llx", p, size); // "%*[^@]@%p:%lld"
     if (res < 2) {
         char ch = 0;
-        int res = sscanf_s(cmd, "@%p:%llx%c", p, size, &ch);
+        int res = sscanf_s(cmd, "@%p:%llx%c", p, size, &ch, 1);
         if ((res == 3) && (ch == ' ')) {
             res = sscanf_s(cmd, "@%p:%lld", p, size);
             if (res < 2) {
@@ -496,7 +496,7 @@ static bool get_ptr_and_size_1(const char* cmd, void** p, int64_t* size) {
     int res = sscanf_s(cmd, " @ %p:0x%llx", p, size); // "%*[^@]@%p:%lld"
     if (res < 2) {
         char ch = 0;
-        int res = sscanf_s(cmd, " @ %p:%llx%c", p, size, &ch);
+        int res = sscanf_s(cmd, " @ %p:%llx%c", p, size, &ch, 1);
         if ((res == 3) && (ch == ' ')) {
             res = sscanf_s(cmd, " @ %p:%lld", p, size);
             if (res < 2) {
@@ -513,7 +513,7 @@ static bool get_ptr_and_size_2(const char* cmd, void** p, int64_t* size) {
     int res = sscanf_s(cmd, " @ %p:0x%llx", p, size); // "%*[^@]@%p:%lld"
     if (res < 2) {
         char ch = 0;
-        int res = sscanf_s(cmd, " @ %p:%llx%c", p, size, &ch);
+        int res = sscanf_s(cmd, " @ %p:%llx%c", p, size, &ch, 1);
         if (res < 3 || ch == '^' || ch == '&') {
             res = sscanf_s(cmd, " @ %p:%lld", p, size);
             if (res < 2) {
@@ -530,7 +530,7 @@ static bool get_id(const char* cmd, DWORD* id) {
     int res = sscanf_s(cmd, " 0x%x", id);
     if (res < 1) {
         char ch = 0;
-        int res = sscanf_s(cmd, " %x%c", id, &ch);
+        int res = sscanf_s(cmd, " %x%c", id, &ch, 1);
         if (res < 2) {
             res = sscanf_s(cmd, " %d", id);
             if (res < 1) {
@@ -553,11 +553,12 @@ inline const char* find_char(const char* buf, size_t len, char ch) {
 }
 
 inline int skip_whitespace(const char* buf, size_t len) {
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < (int)len; i++) {
         if (buf[i + 1] != ' ') {
             return i + 1;
         }
     }
+    return (int)len;
 }
 
 input_command parse_command_common(common_processing_context *ctx, search_data_info *data, char *pattern) {
@@ -632,7 +633,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         command = c_search_pattern;
         // modifiers
         bool stop_parsing = false;
-        for (uint64_t i = 1; (i < cmd_length) && !stop_parsing; i++) {
+        for (int64_t i = 1; (i < cmd_length) && !stop_parsing; i++) {
             switch (cmd[i]) {
             case 'x':
                 in_type = input_type::it_hex_value;
@@ -777,7 +778,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 fprintf(stderr, "Error parsing the operation hex string.\n");
                 return c_continue;
             } else {
-                ctx->hdata.hex_op.str_len = data.pdata.pattern_len;
+                ctx->hdata.hex_op.str_len = (int32_t)data.pdata.pattern_len;
             }
         }
 
@@ -934,7 +935,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
         }
 
         if (size <= 0 || size > MAX_CALCULATION_BLOCK_SIZE) {
-            fprintf(stderr, "Block size exceed maximum size: 0x%llx", MAX_CALCULATION_BLOCK_SIZE);
+            fprintf(stderr, "Block size exceed maximum size: 0x%llx", (int64_t)MAX_CALCULATION_BLOCK_SIZE);
             return c_continue;
         }
 
@@ -958,7 +959,7 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                 const bool append = cmd[2] == 'a';
                 const size_t cmd_len = strlen(cmd);
                 const char* paths = skip_to_args(cmd, cmd_len);
-                if (cmd_len <= ptrdiff_t(paths - cmd)) {
+                if ((int64_t)cmd_len <= ptrdiff_t(paths - cmd)) {
                     fprintf(stderr, error_parsing_the_input);
                     return c_continue;
                 }
@@ -1056,22 +1057,22 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
     switch (hdata.mode) {
     case hm_bytes: {
         for (int i = 0; i < num_cols; i++) {
-            printf("%02X ", ((uint32_t)address + i) & 0xFF);
+            printf("%02X ", (uint32_t)((uint64_t)address + i) & 0xFF);
         }
         printf(" ");
         for (int i = 0; i < num_cols; i++) {
-            printf("%1X", ((uint32_t)address + i) & 0x0F);
+            printf("%1X", (uint32_t)((uint64_t)address + i) & 0x0F);
         }
         puts("");
-        size_t byte_id = 0;
-        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
+        int byte_id = 0;
+        for (size_t i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
             printf("0x%p  ", address);
             address += bytes_in_row;
             const size_t _sz = _min(num_cols, (size - byte_id));
             for (int j = 0; j < _sz; j++) {
                 printf("%02x ", (uint8_t)bytes[byte_id+j]);
             }
-            for (int j = _sz; j < num_cols; j++) {
+            for (size_t j = _sz; j < num_cols; j++) {
                 printf("   ");
             }
             printf(" ");
@@ -1090,7 +1091,7 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
     case hm_words: {
         puts("");
         size_t byte_id = 0;
-        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
+        for (size_t i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
             printf("0x%p  ", address);
             address += bytes_in_row;
             const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
@@ -1104,7 +1105,7 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
     case hm_dwords: {
         puts("");
         size_t byte_id = 0;
-        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
+        for (size_t i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
             printf("0x%p  ", address);
             address += bytes_in_row;
             const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
@@ -1118,7 +1119,7 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
     case hm_qwords: {
         puts("");
         size_t byte_id = 0;
-        for (int i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
+        for (size_t i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
             printf("0x%p  ", address);
             address += bytes_in_row;
             const size_t _sz = _min(bytes_in_row, (size_bytes - byte_id));
@@ -1244,7 +1245,7 @@ void print_image_info(const common_processing_context* ctx) {
     printf("MinorLinkerVersion: %d\n", optional_header->MinorLinkerVersion);
     printf("SizeOfCode: 0x%X\n", optional_header->SizeOfCode);
     printf("AddressOfEntryPoint: 0x%X\n", optional_header->AddressOfEntryPoint);
-    printf("ImageBase: 0x%X\n", optional_header->ImageBase);
+    printf("ImageBase: 0x%llX\n", optional_header->ImageBase);
     printf("SectionAlignment: 0x%X\n", optional_header->SectionAlignment);
     printf("FileAlignment: 0x%X\n", optional_header->FileAlignment);
     
@@ -1263,7 +1264,7 @@ uint32_t compute_crc32c(const uint8_t* data, size_t length) {
     while (length >= chunk_size) {
         uint64_t chunk = *(const uint64_t*)data;
 
-        crc = _mm_crc32_u64(crc, chunk);
+        crc = (uint32_t)_mm_crc32_u64(crc, chunk);
         data += chunk_size;
         length -= chunk_size;
     }
@@ -1347,7 +1348,7 @@ static void print_symbol_info_flags(const SYMBOL_INFO* symbol_info) {
 
 static void print_symbol_info(const SYMBOL_INFO* symbol_info) {
     printf("Symbol: %s\n", symbol_info->Name);
-    printf("Size: 0x%llx\n", symbol_info->Size);
+    printf("Size: 0x%lx\n", symbol_info->Size);
     printf("ModBase: 0x%016llx\n", symbol_info->ModBase);
     printf("Address: 0x%016llx\n", symbol_info->Address);
     print_symbol_info_flags(symbol_info);
@@ -1417,7 +1418,7 @@ void symbol_find_next(common_processing_context* ctx) {
     if (SymNext(ctx->sym_ctx.process, symbol_info)) {
         print_symbol_info(symbol_info);
     } else {
-        printf("Failed to resolve next symbol %s.\n");
+        puts("Failed to resolve next symbol.");
     }
 }
 
@@ -1434,7 +1435,7 @@ void symbol_find_prev(common_processing_context* ctx) {
     if (SymPrev(ctx->sym_ctx.process, symbol_info)) {
         print_symbol_info(symbol_info);
     } else {
-        printf("Failed to resolve previous symbol %s.\n");
+        puts("Failed to resolve previous symbol.");
     }
 }
 
