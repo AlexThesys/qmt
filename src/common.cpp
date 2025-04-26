@@ -169,7 +169,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         data->pdata.pattern = pattern;
         data->pdata.pattern_len = pattern_len;
 
-        puts("\nSearching for a hex string...");
+        printf("\nSearching for a hex string...");
         break;
     }
     case input_type::it_hex_value : {
@@ -196,7 +196,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         extra_char = data->pdata.pattern_len & 0x01;
         data->pdata.pattern_len = (data->pdata.pattern_len + extra_char) / 2;
         if (data->pdata.pattern_len <= sizeof(uint64_t)) {
-            puts("\nSearching for a hex value...");
+            printf("\nSearching for a hex value...");
         } else {
             fprintf(stderr, "Max supported hex value size: %d bytes!\n", (int)sizeof(uint64_t));
             data->type = it_error_type;
@@ -207,7 +207,7 @@ static void parse_input(char* pattern, search_data_info *data, input_type in_typ
         data->type = it_ascii_string;
         data->pdata.pattern = pattern;
         pattern[data->pdata.pattern_len] = 0;
-        puts("\nSearching for an ascii string...");
+        printf("\nSearching for an ascii string...");
         break;
     default : 
         data->type = it_error_type;
@@ -1023,6 +1023,27 @@ uint64_t prepare_matches(const common_processing_context* ctx, std::vector<searc
         [](const search_match& a, const search_match& b) { return a.match_address == b.match_address; }), matches.end());
 
     return matches.size();
+}
+
+void print_match(const search_match* match, const std::vector<mem_snapshot>& mem_snapshots) {
+    printf("\n\t0x%p  ", match->match_address);
+
+    const mem_snapshot &snapshot = mem_snapshots[match->mem_snapshot_id];
+    const uint8_t *address = (const uint8_t*)snapshot.data;
+    const int size = snapshot.size;
+    for (int i = 0; i < size; i++) {
+        printf("%02x ", (uint8_t)address[i]);
+    }
+    printf(" ");
+    for (int i = 0; i < size; i++) {
+        char ch = (char)address[i];
+        if ((ch >= '!') && (ch <= '~')) {
+            printf("%c", (char)address[i]);
+        } else {
+            printf(".");
+        }
+    }
+    printf("\n");
 }
 
 void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t length) {

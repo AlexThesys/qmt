@@ -214,12 +214,19 @@ struct search_data_info {
 };
 
 struct search_match {
-    uint64_t info_id;
+    uint32_t info_id;
+    uint32_t mem_snapshot_id;
     const char* match_address;
+};
+
+struct mem_snapshot {
+    char data[16];
+    int32_t size; // int8_t ?
 };
 
 struct search_context_common {
     std::vector<search_match> matches;
+    std::vector<mem_snapshot> mem_snapshots;
     semaphore master_sem;
     semaphore_counting workers_sem;
     volatile int exit_workers;
@@ -264,6 +271,7 @@ void print_help_symbols_common();
 
 input_command parse_command_common(common_processing_context* ctx, search_data_info* data, char* pattern);
 uint64_t prepare_matches(const common_processing_context *ctx, std::vector<search_match>& matches);
+void print_match(const search_match* match, const std::vector<mem_snapshot>& mem_snapshots);
 void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t length);
 void try_redirect_output_to_file(common_processing_context* ctx);
 void redirect_output_to_stdout(common_processing_context* ctx);

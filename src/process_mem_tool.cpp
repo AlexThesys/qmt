@@ -15,7 +15,7 @@ struct proc_processing_context {
 struct block_info_proc {
     const char* ptr;
     size_t size;
-    size_t info_id;
+    uint32_t info_id;
 };
 
 struct search_context_proc {
@@ -65,6 +65,7 @@ static void find_pattern(search_context_proc* search_ctx) {
     const char* pattern = search_ctx->ctx->common.pdata.pattern;
     const int64_t pattern_len = search_ctx->ctx->common.pdata.pattern_len;
     auto& matches = search_ctx->common.matches;
+    auto& mem_snapshots = search_ctx->common.mem_snapshots;
     auto& mem_info = search_ctx->mem_info;
     auto& block_info_queue = search_ctx->block_info_queue;
     auto& exit_workers = search_ctx->common.exit_workers;
@@ -140,8 +141,13 @@ static void find_pattern(search_context_proc* search_ctx) {
                 const ptrdiff_t buffer_offset = buffer_ptr - buffer;
                 const char* match = ptr + buffer_offset;
                 if (!ranged_search || ((match >= range_start) && ((match < range_end)))) {
+                    mem_snapshot snapshot;
+                    snapshot.size = _min(sizeof(snapshot.data), buffer_size);
+                    memcpy(&snapshot.data, buffer_ptr, snapshot.size);
                     search_ctx->common.matches_lock.lock();
-                    matches.push_back(search_match{ block.info_id, match });
+                    const uint32_t current_id = (uint32_t)matches.size();
+                    matches.push_back(search_match{ block.info_id, current_id, match });
+                    mem_snapshots.push_back(snapshot);
                     search_ctx->common.matches_lock.unlock();
                 }
                 buffer_ptr++;
@@ -282,13 +288,13 @@ static void print_search_results(search_context_proc& search_ctx) {
     }
 
     printf("*** Total number of matches: %llu ***\n", num_matches);
-    uint64_t prev_info_id = (uint64_t)(-1);
+    uint32_t prev_info_id = (uint32_t)(-1);
 
     std::vector<thread_info_proc> thread_info;
     gather_thread_info(search_ctx.ctx, thread_info);
 
     for (size_t i = 0; i < num_matches; i++) {
-        const size_t info_id = search_ctx.common.matches[i].info_id;
+        const uint32_t info_id = search_ctx.common.matches[i].info_id;
         if (info_id != prev_info_id) {
             puts("\n------------------------------------\n");
             const MEMORY_BASIC_INFORMATION& r_info = search_ctx.mem_info[info_id];
@@ -311,7 +317,7 @@ static void print_search_results(search_context_proc& search_ctx) {
 
             prev_info_id = info_id;
         }
-        printf("\tMatch at address: 0x%p\n", search_ctx.common.matches[i].match_address);
+        print_match(&search_ctx.common.matches[i], search_ctx.common.mem_snapshots);
     }
     puts("");
 }
@@ -344,10 +350,9 @@ static void search_pattern_in_memory(proc_processing_context* ctx) {
 
     char proc_name[MAX_PATH];
     if (GetModuleFileNameExA(ctx->process, NULL, proc_name, MAX_PATH)) {
-        printf("Process name: %s\n\n", proc_name);
+        printf("Process name: %s\n", proc_name);
     }
 
-    puts("Searching committed memory...");
     puts("\n------------------------------------\n");
 
     search_context_proc search_ctx{};
