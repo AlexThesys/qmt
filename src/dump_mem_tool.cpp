@@ -1310,6 +1310,7 @@ static void print_module_info(const dump_processing_context* ctx) {
 }
 
 static void print_thread_info(const dump_processing_context* ctx) {
+    bool found = false;
     for (ULONG i = 0, num_threads = (ULONG)ctx->t_data.size(); i < num_threads; i++) {
         const thread_info_dump& thread = ctx->t_data[i];
         if (thread.tid != ctx->common.i_data.tid) {
@@ -1328,7 +1329,12 @@ static void print_thread_info(const dump_processing_context* ctx) {
         printf("RIP: 0x%p\tRFLAGS: 0x%08x\tMXCSR: 0x%08x\n",
             (char*)thread.context->Rip, thread.context->EFlags, thread.context->MxCsr);
         puts("");
+
+        found = true;
         break;
+    }
+    if (!found) {
+        printf("Thread 0x%x not found.\n\n", ctx->common.i_data.tid);
     }
 }
 
