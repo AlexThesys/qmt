@@ -17,7 +17,7 @@ static const char* cmd_args[] = { "-h", "--help", "-f", "--show-failed-readings"
                                 "-p", "--process", "-d", "--dump", "-b=", "--blocks=", "-n", "--no-page-caching", "-c", "--clear-standby-list", 
                                 "-s", "--disable-symbols"};
 static constexpr size_t cmd_args_size = _countof(cmd_args) / 2; // given that every option has a long and a short forms
-static const char* program_version = "Version 0.3.9";
+static const char* program_version = "Version 0.4.0";
 static const char* program_name = "Quick Memory Tools";
 
 int g_max_threads = INVALID_THREAD_NUM;
