@@ -1635,7 +1635,7 @@ static void wait_for_memory_regions_caching(cache_memory_regions_ctx* ctx) {
         }
         Sleep(WAIT_FOR_MS);
     }
-    puts("\n");
+    puts("");
 }
 
 static void stop_memory_regions_caching(cache_memory_regions_ctx* ctx, std::thread& t) {
