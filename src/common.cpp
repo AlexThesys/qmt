@@ -680,8 +680,8 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
                     fprintf(stderr, error_parsing_the_input);
                     return c_continue;
                 }
-                if ((size > MAX_RANGE_LENGTH) || (size <= 0)) {
-                    fprintf(stderr, "Invalid number of bytes to display. The limit is 0x%x\n", MAX_BYTE_TO_HEXDUMP);
+                if ((size > MAX_SEARCH_RANGE_LENGTH) || (size <= 0)) {
+                    fprintf(stderr, "Invalid search range size (bytes). The limit is 0x%x\n", MAX_SEARCH_RANGE_LENGTH);
                     return c_continue;
                 }
                 ctx->pdata.range.start = (const char*)p;
@@ -721,14 +721,19 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             return c_help_hexdump;
         }
         hexdump_mode mode;
+        const char* data_size_name = nullptr;
         if (cmd[1] == 'b') {
             mode = hexdump_mode::hm_bytes;
+            data_size_name = "bytes";
         } else if (cmd[1] == 'w') {
             mode = hexdump_mode::hm_words;
+            data_size_name = "words";
         } else if (cmd[1] == 'd') {
             mode = hexdump_mode::hm_dwords;
+            data_size_name = "dwords";
         } else if (cmd[1] == 'q') {
             mode = hexdump_mode::hm_qwords;
+            data_size_name = "qwords";
         } else {
             fprintf(stderr, unknown_command);
             return c_continue;
@@ -740,8 +745,8 @@ input_command parse_command_common(common_processing_context *ctx, search_data_i
             fprintf(stderr, error_parsing_the_input);
             return c_continue;
         }
-        if (((size * mode) > MAX_BYTE_TO_HEXDUMP) || (size <= 0)) {
-            fprintf(stderr, "Invalid number of bytes to display. The limit is 0x%x\n", MAX_BYTE_TO_HEXDUMP);
+        if (((size * mode) > MAX_BYTES_TO_HEXDUMP) || (size <= 0)) {
+            fprintf(stderr, "Invalid number of %s to display. The limit is 0x%x\n", data_size_name, MAX_BYTES_TO_HEXDUMP / mode);
             return c_continue;
         }
 
@@ -1055,7 +1060,7 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
     constexpr int bytes_in_row = 0x10;
     const int num_cols = bytes_in_row / hdata.mode;
     switch (hdata.mode) {
-    case hm_bytes: {
+    case hexdump_mode::hm_bytes: {
         for (int i = 0; i < num_cols; i++) {
             printf("%02X ", (uint32_t)((uint64_t)address + i) & 0xFF);
         }
@@ -1088,7 +1093,7 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
         }
         break;
     }
-    case hm_words: {
+    case hexdump_mode::hm_words: {
         puts("");
         size_t byte_id = 0;
         for (size_t i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
@@ -1102,7 +1107,7 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
         }
         break;
     }
-    case hm_dwords: {
+    case hexdump_mode::hm_dwords: {
         puts("");
         size_t byte_id = 0;
         for (size_t i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
@@ -1116,7 +1121,7 @@ void print_hexdump(const hexdump_data& hdata, const uint8_t* bytes, size_t lengt
         }
         break;
     }
-    case hm_qwords: {
+    case hexdump_mode::hm_qwords: {
         puts("");
         size_t byte_id = 0;
         for (size_t i = 0, sz = ((size + num_cols - 1) / num_cols); i < sz; i++, byte_id += bytes_in_row) {
